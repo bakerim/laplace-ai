@@ -118,22 +118,28 @@ def get_lstm_prediction(history_df, model, scaler, features_list):
         return f"Düşüş Olasılığı: %{100 - prediction_score:.2f}"
 
 # --- MOTOR FONKSİYONLARI (AYNI) ---
+# --- laplace_terminal.py içinde get_market_data fonksiyonunu bul ---
+
 @st.cache_data(ttl=600)
 def get_market_data(ticker):
     try:
         stock = yf.Ticker(ticker)
+        # Daha uzun geçmiş veri çekiyoruz (LSTM için 60 gün lazım)
         hist = stock.history(period="6mo") 
-        if hist.columns = [col.lower() for col in hist.columns]
+        if hist.empty: return None, None
         
+        # Hata veren satır: if yok, sadece atama var.
+        hist.columns = [col.lower() for col in hist.columns] 
+        
+        # Göstergeleri hesapla
         hist = calculate_indicators(hist)
         
         current_price = hist['close'].iloc[-1]
         summary = {"price": current_price, "rsi": hist['rsi'].iloc[-1]}
         return summary, hist
     except: return None, None
-    
-# Gemini ve diğer helper fonksiyonları aynı kalır.
-# ...
+
+
 
 # --- ARAYÜZ AKIŞI ---
 st.title("📐 LAPLACE V2.2 (GÜVENLİ ÇALIŞMA)")
