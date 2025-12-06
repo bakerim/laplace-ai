@@ -71,6 +71,7 @@ def run_sentiment_analysis(news_df):
     
     return daily_sentiment
 
+# Yalnızca bu fonksiyonu değiştir:
 def merge_and_save(tech_df, daily_sentiment):
     """Teknik ve Duygu verilerini birleştirip kaydeder."""
     
@@ -81,14 +82,19 @@ def merge_and_save(tech_df, daily_sentiment):
     # Teknik veri index'ini sütuna çevirip birleştirme için hazırlar
     tech_df['Date'] = tech_df.index
     
-    # Birleştirme: Basit tarih sütununa göre yap
+    # 1. BİRLEŞTİRME
     final_df = pd.merge(tech_df, daily_sentiment, left_on='Date', right_on='Date', how='left')
     
-    # Duygu puanı olmayan günleri Nötr (0) olarak doldur.
-    final_df['Market_Sentiment'].fillna(0, inplace=True)
+    # 2. SÜTUN İSİMLERİNİ KÜÇÜK HARFE ÇEVİR (Hedef sütunun 'target' olmasını garanti etmek için)
+    final_df.columns = [col.lower() for col in final_df.columns]
     
-    # NaN satırları düşür ve Target sütunu olmayanları temizle
-    final_df.dropna(subset=['Target'], inplace=True) 
+    # 3. VERİ TEMİZLİĞİ VE KAYIT
+    
+    # Duygu puanı olmayan günleri Nötr (0) olarak doldur.
+    final_df['market_sentiment'].fillna(0, inplace=True)
+    
+    # NaN satırları düşürürken artık 'target' (küçük harf) kullanıyoruz.
+    final_df.dropna(subset=['target'], inplace=True) 
     
     # Final dosyayı kaydet
     FINAL_FILE = 'laplace_FINAL_TRAINING_SET.csv'
@@ -114,3 +120,4 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("🏁 YAPAY ZEKA EĞİTİMİ İÇİN VERİ HAZIRDIR.")
     print("="*50)
+
