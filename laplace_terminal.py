@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pandas_ta as ta
 import yfinance as yf
 import google.generativeai as genai
 import plotly.graph_objects as go
@@ -182,3 +182,4 @@ if analyze_btn:
                     st.write("Son Haberler:", news_data)
         else:
             st.error("Veri alınamadı. Piyasa kapalı olabilir veya API limiti dolmuş olabilir.")
+
