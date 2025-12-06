@@ -119,4 +119,9 @@ if __name__ == "__main__":
     
     print("\n" + "="*50)
     print("🏁 YAPAY ZEKA EĞİTİMİ İÇİN VERİ HAZIRDIR.")
+<<<<<<< HEAD
     print("="*50)
+=======
+    print("="*50)
+
+>>>>>>> origin/main
