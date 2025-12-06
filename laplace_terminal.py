@@ -182,3 +182,5 @@ if analyze_btn:
                     st.write("Son Haberler:", news_data)
         else:
             st.error("Veri alınamadı. Piyasa kapalı olabilir veya API limiti dolmuş olabilir.")
+
+
