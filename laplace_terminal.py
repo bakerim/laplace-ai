@@ -202,4 +202,3 @@ if analyze_btn:
             # GEMINI ANALİZ KARTI (Mevcut Zeka)
             st.markdown(f"### 🧠 Gemini AI Analizi (Skor: {gemini_result.get('score', 'N/A')})")
             st.json(gemini_result)
-git commit --no-edit
