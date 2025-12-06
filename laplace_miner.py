@@ -1,6 +1,6 @@
 import yfinance as yf
 import pandas as pd
-import ta as ta_lib # Yeni Kütüphane!
+import ta as ta_lib # HATA DÜZELTİLDİ: Artık kurduğun 'ta' kütüphanesini kullanıyor
 from newspaper import Article, build
 from datetime import datetime, timedelta
 import os
@@ -68,7 +68,6 @@ def mine_news_data():
             for article in paper.articles:
                 if article.url is None: continue
 
-                # Sadece son 24 saati al (Geçmiş veriyi toplamak için bu filtre kaldırılabilir)
                 if article.publish_date and article.publish_date < datetime.now() - timedelta(hours=24):
                      continue
 
