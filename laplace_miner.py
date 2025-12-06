@@ -1,12 +1,12 @@
 import yfinance as yf
 import pandas as pd
-import ta # Kütüphane Adı (ta)
+import ta 
 from newspaper import Article, build
 from datetime import datetime, timedelta
 import os
 import time
 
-# --- LAPLACE: ÇOKLU VERİ MADENCİSİ V3.1 ---
+# --- LAPLACE: ÇOKLU VERİ MADENCİSİ V3.2 ---
 
 TICKERS = [
     'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'AMD', 'PLTR'
@@ -25,47 +25,50 @@ if not os.path.exists(DATA_DIR):
 
 def mine_technical_data(ticker):
     """2 Yıllık fiyat ve indikatör verisini çeker."""
-    print(f"⛏️  Kazılıyor: {ticker}...")
+    print(f"⛏️  Kazılıyor: {ticker}...", end="")
     try:
         # 1. Son 2 Yılın verisini indir
         df = yf.download(ticker, period="2y", interval="1d", progress=False)
-        if df.empty: return None
+        if df.empty: 
+            print(" ❌ Veri Boş")
+            return None
         
-        df.columns = df.columns.astype(str)
+        # --- PANDAS UYUMLULUK FIX ---
+        if isinstance(df.columns, pd.MultiIndex):
+            # Eğer MultiIndex gelirse, top-level indexi alıp sütunları düzleştir.
+            df.columns = df.columns.get_level_values(0)
+        
+        # Sütun isimlerini küçük harfe çevir (API'ye uygunluk)
+        df.columns = [col.lower() for col in df.columns]
         df.index = df.index.strftime('%Y-%m-%d')
+        # --- FIX BİTTİ ---
+
+        # 3. MATEMATİKSEL HESAPLAMALAR
+        df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
         
-        # 3. MATEMATİKSEL HESAPLAMALAR (TA KÜTÜPHANESİ METOTLARI KULLANILARAK)
+        macd_indicator = ta.trend.MACD(df['close'])
+        df['macd'] = macd_indicator.macd()
+        df['macd_signal'] = macd_indicator.macd_signal()
         
-        # RSI (Göreceli Güç)
-        df['RSI'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
+        bb_indicator = ta.volatility.BollingerBands(df['close'])
+        df['bb_upper'] = bb_indicator.bollinger_hband()
+        df['bb_lower'] = bb_indicator.bollinger_lband()
         
-        # MACD (Trend Takipçisi)
-        macd_indicator = ta.trend.MACD(df['Close'])
-        df['MACD'] = macd_indicator.macd()
-        df['MACD_SIGNAL'] = macd_indicator.macd_signal()
-        
-        # Bollinger Bantları (Volatilite)
-        bb_indicator = ta.volatility.BollingerBands(df['Close'])
-        df['BB_UPPER'] = bb_indicator.bollinger_hband()
-        df['BB_LOWER'] = bb_indicator.bollinger_lband()
-        
-        # ATR (Ortalama Gerçek Aralık - Volatilite)
-        df['ATR'] = ta.volatility.AverageTrueRange(
-            df['High'], df['Low'], df['Close'], window=14
+        df['atr'] = ta.volatility.AverageTrueRange(
+            df['high'], df['low'], df['close'], window=14
         ).average_true_range()
         
-        # Hacim Osilatörü
-        df['OBV'] = ta.volume.OnBalanceVolumeIndicator(df['Close'], df['Volume']).on_balance_volume()
+        df['obv'] = ta.volume.OnBalanceVolumeIndicator(df['close'], df['volume']).on_balance_volume()
 
         # HEDEF BELİRLEME (Yarın Yükselir mi? -> 1=Evet)
-        df['Target'] = (df['Close'].shift(-1) > df['Close']).astype(int)
+        df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
         
-        # Verinin ilk 30 satırı NaN olacağı için temizle
         df.dropna(inplace=True)
+        print(" ✅ Teknik Veri Hazır.")
         return df
         
     except Exception as e:
-        print(f"❌ Teknik Hata ({ticker}): {e}")
+        print(f" ❌ Kritik Hata: {e}")
         return None
 
 def mine_news_data():
@@ -74,7 +77,6 @@ def mine_news_data():
     
     for url in NEWS_SOURCES:
         try:
-            # Burası yavaşlayabilir. Sadece son makaleleri hedefliyor.
             paper = build(url, memoize_articles=False) 
             
             for article in paper.articles:
@@ -100,7 +102,7 @@ def mine_news_data():
                      print(f"   [-- {len(all_news)} makale indirildi --]")
                      
         except Exception as e:
-            print(f"⚠️ Haber kaynağı ({url}) taranamadı: {e}")
+            pass # Haber kaynağı hatası için sessizce devam et
             
     return pd.DataFrame(all_news)
 
@@ -116,7 +118,6 @@ def main():
         if data is not None:
             data['Ticker'] = ticker
             combined_tech_data.append(data)
-            print(f"✅ Teknik Veri Başarıyla Toplandı: {ticker}")
         time.sleep(1) 
 
     if combined_tech_data:
