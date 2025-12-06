@@ -1,5 +1,5 @@
 import yfinance as yf
-import pandas_ta as ta
+import pandas as pd
 import ta as ta_lib # HATA DÜZELTİLDİ: Artık kurduğun 'ta' kütüphanesini kullanıyor
 from newspaper import Article, build
 from datetime import datetime, timedelta
@@ -130,5 +130,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
