@@ -1,6 +1,6 @@
 import yfinance as yf
 import pandas as pd
-import ta as
+import ta 
 import os
 import time
 from datetime import datetime
@@ -98,4 +98,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
