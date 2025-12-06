@@ -3,4 +3,5 @@ pandas
 yfinance
 google-generativeai
 requests
+plotly  <-- YENİ EKLENEN
 # newspaper3k # (İleride veri madenciliği için bunu da açacağız)
