@@ -4,3 +4,7 @@ yfinance
 google-generativeai
 requests
 plotly
+tensorflow
+scikit-learn
+ta
+nltk
