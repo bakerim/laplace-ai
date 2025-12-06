@@ -4,9 +4,9 @@ import yfinance as yf
 import google.generativeai as genai
 import requests
 import json
-import streamlit.components.v1 as components
+import plotly.graph_objects as go # Grafik için
 
-# --- LAPLACE: PROJE BAŞLANGICI ---
+# --- LAPLACE: SÜRÜM 1.1 ---
 st.set_page_config(page_title="LAPLACE: Neural Terminal", page_icon="📐", layout="wide")
 
 # --- API KONTROL ---
@@ -14,11 +14,9 @@ try:
     api_key = st.secrets["GOOGLE_API_KEY"]
     genai.configure(api_key=api_key)
 except:
-    # Eğer secrets yoksa (Localde çalışıyorsan) manuel giriş iste
-    # st.warning("API Anahtarı Streamlit Secrets'ta bulunamadı.")
     pass
 
-# --- İZLEME LİSTESİ (US TECH & AI) ---
+# --- İZLEME LİSTESİ ---
 WATCHLIST = [
     'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'NFLX', 'AMD', 'INTC',
     'PLTR', 'AI', 'SMCI', 'ARM', 'PATH', 'SNOW', 'CRWD', 'PANW', 'ORCL', 'ADBE',
@@ -30,111 +28,84 @@ WATCHLIST.sort()
 # --- CSS: LAPLACE KARANLIK TEMA ---
 st.markdown("""
 <style>
-    /* Ana Arka Plan */
     .stApp { background-color: #0e1117; }
-    
-    /* Kart Tasarımı: Minimalist ve Teknik */
-    .card {
-        background-color: #161b22;
-        border: 1px solid #30363d;
-        padding: 20px;
-        border-radius: 6px;
-        margin-bottom: 15px;
-        color: #c9d1d9;
-        font-family: 'Consolas', 'Monaco', monospace;
-    }
-    
-    /* Başlık Alanı */
-    .card-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-bottom: 1px solid #30363d;
-        padding-bottom: 10px;
-        margin-bottom: 10px;
-        font-size: 1.2em;
-        font-weight: bold;
-        color: #58a6ff;
-    }
-    
-    .score-box {
-        background: #238636;
-        color: white;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 0.9em;
-    }
-    
-    /* Metin Alanı */
-    .analysis-text {
-        font-size: 0.9em;
-        line-height: 1.5;
-        color: #8b949e;
-        margin-bottom: 15px;
-    }
-    
-    /* Veri Izgarası */
-    .data-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 1px;
-        background: #30363d;
-        border: 1px solid #30363d;
-        border-radius: 4px;
-        overflow: hidden;
-    }
-    
-    .grid-item {
-        background: #0d1117;
-        padding: 10px;
-        text-align: center;
-    }
-    
+    .card { background-color: #161b22; border: 1px solid #30363d; padding: 20px; border-radius: 6px; margin-bottom: 15px; color: #c9d1d9; font-family: 'Consolas', 'Monaco', monospace; }
+    .card-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #30363d; padding-bottom: 10px; margin-bottom: 10px; font-size: 1.2em; font-weight: bold; color: #58a6ff; }
+    .score-box { background: #238636; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.9em; }
+    .analysis-text { font-size: 0.9em; line-height: 1.5; color: #8b949e; margin-bottom: 15px; }
+    .data-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #30363d; border: 1px solid #30363d; border-radius: 4px; overflow: hidden; }
+    .grid-item { background: #0d1117; padding: 10px; text-align: center; }
     .label { font-size: 0.7em; color: #8b949e; text-transform: uppercase; }
     .value { font-size: 1.1em; color: #e6edf3; font-weight: bold; }
-    
-    /* Renk Kodları */
-    .tier-s { border-left: 4px solid #238636; } /* Yeşil */
-    .tier-a { border-left: 4px solid #1f6feb; } /* Mavi */
-    .tier-b { border-left: 4px solid #d29922; } /* Sarı */
-    .tier-f { border-left: 4px solid #da3633; opacity: 0.6; } /* Kırmızı */
-    
+    .tier-s { border-left: 4px solid #238636; }
+    .tier-a { border-left: 4px solid #1f6feb; }
+    .tier-b { border-left: 4px solid #d29922; }
+    .tier-f { border-left: 4px solid #da3633; opacity: 0.6; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- MOTOR FONKSİYONLARI ---
+# --- YARDIMCI: RSI HESAPLA ---
+def calculate_rsi(data, window=14):
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+    rs = gain / loss
+    return 100 - (100 / (1 + rs))
 
+# --- MOTOR FONKSİYONLARI ---
 def get_market_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # Sadece son 1 ayı değil, 3 ayı alalım ki model daha iyi görsün
-        hist = stock.history(period="3mo")
-        if hist.empty: return None
+        # Grafik için son 6 aylık veri
+        hist = stock.history(period="6mo")
+        if hist.empty: return None, None
+        
+        # Göstergeler
+        hist['SMA50'] = hist['Close'].rolling(50).mean()
+        hist['RSI'] = calculate_rsi(hist['Close'])
         
         current_price = hist['Close'].iloc[-1]
-        sma50 = hist['Close'].rolling(50).mean().iloc[-1]
-        sma200 = hist['Close'].rolling(200).mean().iloc[-1]
+        sma50 = hist['SMA50'].iloc[-1]
+        rsi = hist['RSI'].iloc[-1]
         
-        # Golden Cross Kontrolü (İlkel bir sinyal)
         trend = "NÖTR"
-        if current_price > sma50: trend = "POZİTİF"
-        if current_price < sma50: trend = "NEGATİF"
+        if current_price > sma50: trend = "POZİTİF (SMA50 Üstü)"
+        else: trend = "NEGATİF (SMA50 Altı)"
         
-        return {
+        summary = {
             "price": current_price,
             "trend": trend,
+            "rsi": rsi,
             "volatility": (hist['High'] - hist['Low']).mean()
         }
-    except: return None
+        return summary, hist
+    except: return None, None
 
 def get_live_news(ticker):
-    # Laplace, Sazlık'ın arşivini değil, direkt canlıyı tarasın şimdilik
     try:
         stock = yf.Ticker(ticker)
         news = stock.news
         if not news: return []
         return [f"- {n['title']}" for n in news[:3]]
     except: return []
+
+# --- GRAFİK ÇİZEN FONKSİYON ---
+def plot_chart(df, ticker):
+    fig = go.Figure(data=[go.Candlestick(x=df.index,
+                open=df['Open'], high=df['High'],
+                low=df['Low'], close=df['Close'], name=ticker)])
+    
+    # SMA 50 Çizgisi
+    fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], mode='lines', name='SMA 50', line=dict(color='orange', width=1)))
+
+    fig.update_layout(
+        title=f'{ticker} Fiyat Analizi',
+        yaxis_title='Fiyat (USD)',
+        template='plotly_dark',
+        height=400,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    return fig
 
 def laplace_engine(ticker, data, news):
     model = genai.GenerativeModel('gemini-2.0-flash-exp')
@@ -144,24 +115,23 @@ def laplace_engine(ticker, data, news):
     SİSTEM: LAPLACE AI (Probability & Risk Engine)
     GÖREV: Finansal varlık için olasılık ve risk hesabı.
     
-    VARLIK: {ticker}
-    FİYAT: ${data['price']:.2f}
+    VARLIK: {ticker} | FİYAT: ${data['price']:.2f}
     TREND (SMA50): {data['trend']}
-    VOLATİLİTE: {data['volatility']:.2f}
+    RSI (14): {data['rsi']:.2f} (30 altı aşırı satım, 70 üstü aşırı alım)
     
     HABER AKIŞI:
     {news_text}
     
     HESAPLAMA PROTOKOLÜ:
-    1. Haber Sentiment Analizi (-1 ile +1 arası içsel puanlama yap).
-    2. Teknik Trend uyumu (Trend ters ise puanı düşür).
-    3. Laplace Skoru (0-100): Haber ve Tekniğin vektörel toplamı.
+    1. RSI Kontrolü: Eğer RSI > 70 ise "Aşırı Alım" riski var, puanı biraz kır.
+    2. Trend Kontrolü: Fiyat SMA50'nin altındaysa "Düşüş Trendi" uyarısı ver.
+    3. Haber Sentiment: Haberler ile teknik durumu birleştir.
     
     ÇIKTI (JSON):
     {{
         "score": (0-100),
         "signal": "STRONG BUY | BUY | WAIT | SELL",
-        "reason": "Teknik, matematiksel ve kısa açıklama.",
+        "reason": "Teknik (RSI/Trend) ve Temel sentez.",
         "entry": (Fiyat),
         "target": (Hedef),
         "stop": (Stop),
@@ -176,39 +146,41 @@ def laplace_engine(ticker, data, news):
 
 def display_laplace_card(res, ticker):
     score = res['score']
-    
     if score >= 90: c, sig = "tier-s", "ALPHA"
     elif score >= 75: c, sig = "tier-a", "BETA"
     elif score >= 60: c, sig = "tier-b", "GAMMA"
     else: c, sig = "tier-f", "DELTA (RİSK)"
     
-    # HTML Tek Satır (Streamlit bozulmasın diye)
     html = f"""<div class="card {c}"><div class="card-header"><div>{ticker} <span style="font-size:0.6em; color:#888;">{sig}</span></div><div class="score-box">{score}</div></div><div class="analysis-text">{res['reason']}</div><div class="data-grid"><div class="grid-item"><div class="label">SİNYAL</div><div class="value" style="color:#58a6ff;">{res['signal']}</div></div><div class="grid-item"><div class="label">GİRİŞ</div><div class="value">${res['entry']}</div></div><div class="grid-item"><div class="label">HEDEF</div><div class="value">${res['target']}</div></div><div class="grid-item"><div class="label">STOP</div><div class="value" style="color:#da3633;">${res['stop']}</div></div></div></div>"""
-    
     st.markdown(html, unsafe_allow_html=True)
 
 # --- ARAYÜZ AKIŞI ---
-st.title("📐 LAPLACE")
+st.title("📐 LAPLACE v1.1")
 st.caption("Advanced Probability & Market Intelligence System")
 
 col1, col2 = st.columns([3, 1])
-
 with col1:
     ticker = st.selectbox("Varlık Seçimi (US Market)", WATCHLIST)
-
 with col2:
     if st.button("HESAPLA ⚡", use_container_width=True):
         st.session_state['run'] = True
 
 if st.session_state.get('run'):
     with st.spinner("Laplace Motoru Çalışıyor..."):
-        market_data = get_market_data(ticker)
+        # Veriyi çek (Hem özet hem geçmiş veri)
+        market_data, history_df = get_market_data(ticker)
         news_data = get_live_news(ticker)
         
         if market_data:
+            # 1. Analiz Kartı
             result = laplace_engine(ticker, market_data, news_data)
             if result:
                 display_laplace_card(result, ticker)
+                
+                # 2. Grafik Alanı (YENİ)
+                st.markdown("### 📈 Teknik Görünüm")
+                chart = plot_chart(history_df, ticker)
+                st.plotly_chart(chart, use_container_width=True)
                 
                 with st.expander("Ham Veri Akışı"):
                     st.write("Teknik Veriler:", market_data)
