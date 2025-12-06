@@ -2,12 +2,41 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import google.generativeai as genai
-import requests
-import json
 import plotly.graph_objects as go
+import sqlite3
+import json
+from datetime import datetime
 
-# --- LAPLACE: SÜRÜM 1.2 (TURBO & CACHE) ---
+# --- LAPLACE: SÜRÜM 1.3 (HAFIZA & DB) ---
 st.set_page_config(page_title="LAPLACE: Neural Terminal", page_icon="📐", layout="wide")
+
+# --- DATABASE KURULUMU (OTOMATİK) ---
+def init_db():
+    conn = sqlite3.connect('laplace_memory.db')
+    c = conn.cursor()
+    # Tablo yoksa oluştur
+    c.execute('''CREATE TABLE IF NOT EXISTS signals
+                 (date TEXT, ticker TEXT, price REAL, rsi REAL, score INTEGER, signal TEXT, reason TEXT)''')
+    conn.commit()
+    conn.close()
+
+def save_signal(ticker, price, rsi, score, signal, reason):
+    conn = sqlite3.connect('laplace_memory.db')
+    c = conn.cursor()
+    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+    c.execute("INSERT INTO signals VALUES (?,?,?,?,?,?,?)", 
+              (date_str, ticker, price, rsi, score, signal, reason))
+    conn.commit()
+    conn.close()
+
+def load_history():
+    conn = sqlite3.connect('laplace_memory.db')
+    df = pd.read_sql_query("SELECT * FROM signals ORDER BY date DESC LIMIT 50", conn)
+    conn.close()
+    return df
+
+# Veritabanını başlat
+init_db()
 
 # --- API KONTROL ---
 try:
@@ -52,16 +81,14 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- MOTOR FONKSİYONLARI (CACHE EKLENDİ - 10 DK HAFIZA) ---
+# --- MOTOR FONKSİYONLARI ---
 @st.cache_data(ttl=600) 
 def get_market_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        # VERİ DİYETİ: 6 aydan 3 aya düşürdük (Daha hızlı grafik)
         hist = stock.history(period="3mo")
         if hist.empty: return None, None
         
-        # Göstergeler
         hist['SMA50'] = hist['Close'].rolling(50).mean()
         hist['RSI'] = calculate_rsi(hist['Close'])
         
@@ -69,9 +96,7 @@ def get_market_data(ticker):
         sma50 = hist['SMA50'].iloc[-1] if not pd.isna(hist['SMA50'].iloc[-1]) else current_price
         rsi = hist['RSI'].iloc[-1] if not pd.isna(hist['RSI'].iloc[-1]) else 50
         
-        trend = "NÖTR"
-        if current_price > sma50: trend = "POZİTİF (SMA50 Üstü)"
-        else: trend = "NEGATİF (SMA50 Altı)"
+        trend = "POZİTİF" if current_price > sma50 else "NEGATİF"
         
         summary = {
             "price": current_price,
@@ -91,7 +116,6 @@ def get_live_news(ticker):
         return [f"- {n['title']}" for n in news[:3]]
     except: return []
 
-# --- GRAFİK ÇİZEN FONKSİYON (Hafifleştirilmiş) ---
 def plot_chart(df, ticker):
     fig = go.Figure(data=[go.Candlestick(x=df.index,
                 open=df['Open'], high=df['High'],
@@ -103,7 +127,7 @@ def plot_chart(df, ticker):
         title=f'{ticker} - 3 Aylık Trend',
         yaxis_title='Fiyat (USD)',
         template='plotly_dark',
-        height=400, # Yüksekliği biraz kıstık
+        height=350,
         margin=dict(l=10, r=10, t=40, b=10),
         plot_bgcolor='#0e1117',
         paper_bgcolor='#0e1117',
@@ -117,28 +141,17 @@ def laplace_engine(ticker, data, news):
     
     prompt = f"""
     SİSTEM: LAPLACE AI
-    GÖREV: Finansal risk hesaplama.
-    
-    VARLIK: {ticker} | FİYAT: ${data['price']:.2f}
-    TREND: {data['trend']} | RSI: {data['rsi']:.2f}
-    
-    HABERLER:
-    {news_text}
-    
-    PROTOKOL:
-    1. RSI > 70 ise "Aşırı Alım", RSI < 30 ise "Aşırı Satım".
-    2. Trend SMA50 altı ise negatife odaklan.
-    3. Haber ve tekniği birleştirip 0-100 puan ver.
+    VARLIK: {ticker} | FİYAT: ${data['price']:.2f} | RSI: {data['rsi']:.2f}
+    HABERLER: {news_text}
     
     ÇIKTI (JSON):
     {{
         "score": (0-100),
         "signal": "STRONG BUY | BUY | WAIT | SELL",
-        "reason": "Kısa, net teknik ve temel yorum.",
+        "reason": "Kısa teknik/temel özet.",
         "entry": (Fiyat),
         "target": (Hedef),
-        "stop": (Stop),
-        "term": "X Gün"
+        "stop": (Stop)
     }}
     """
     try:
@@ -158,36 +171,46 @@ def display_laplace_card(res, ticker):
     st.markdown(html, unsafe_allow_html=True)
 
 # --- ARAYÜZ AKIŞI ---
-st.title("📐 LAPLACE v1.2 (Turbo)")
+st.title("📐 LAPLACE v1.3 (Memory)")
 
-col1, col2 = st.columns([3, 1])
-with col1:
-    ticker = st.selectbox("Varlık Seçimi", WATCHLIST)
-with col2:
-    # Butonu biraz daha şık yapalım
-    analyze_btn = st.button("HESAPLA ⚡", use_container_width=True, type="primary")
+# Sekmeler
+tab1, tab2 = st.tabs(["⚡ Terminal", "💾 Hafıza Kayıtları"])
 
-if analyze_btn:
-    with st.spinner("Laplace Motoru Çalışıyor..."):
-        # 1. Önce Veriyi Çek (Hızlı - Cache'ten gelebilir)
-        market_data, history_df = get_market_data(ticker)
-        news_data = get_live_news(ticker)
-        
-        if market_data:
-            # 2. ÖNCE GRAFİĞİ ÇİZ (Kullanıcı beklerken grafiğe baksın)
-            st.markdown("### 📈 Teknik Görünüm")
-            chart = plot_chart(history_df, ticker)
-            st.plotly_chart(chart, use_container_width=True)
+with tab1:
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        ticker = st.selectbox("Varlık Seçimi", WATCHLIST)
+    with col2:
+        analyze_btn = st.button("HESAPLA ⚡", use_container_width=True, type="primary")
+
+    if analyze_btn:
+        with st.spinner("Laplace Motoru Çalışıyor..."):
+            market_data, history_df = get_market_data(ticker)
+            news_data = get_live_news(ticker)
             
-            # 3. SONRA AI ANALİZİNİ YAP
-            result = laplace_engine(ticker, market_data, news_data)
-            
-            if result:
-                st.markdown("### 🧠 AI Analizi")
-                display_laplace_card(result, ticker)
+            if market_data:
+                st.markdown("### 📈 Teknik Görünüm")
+                chart = plot_chart(history_df, ticker)
+                st.plotly_chart(chart, use_container_width=True)
                 
-                with st.expander("Ham Veri"):
-                    st.write(market_data)
-                    st.write(news_data)
-        else:
-            st.error("Veri kaynağına erişilemedi. Lütfen tekrar deneyin.")
+                result = laplace_engine(ticker, market_data, news_data)
+                
+                if result:
+                    st.markdown("### 🧠 AI Analizi")
+                    display_laplace_card(result, ticker)
+                    
+                    # --- HAFIZAYA KAYDETME ANI ---
+                    save_signal(ticker, market_data['price'], market_data['rsi'], 
+                                result['score'], result['signal'], result['reason'])
+                    st.toast(f"✅ {ticker} analizi veritabanına kaydedildi!", icon="💾")
+                    
+            else:
+                st.error("Veri kaynağına erişilemedi.")
+
+with tab2:
+    st.markdown("### 🗄️ Laplace Veri Seti (Son 50 Sinyal)")
+    history = load_history()
+    if not history.empty:
+        st.dataframe(history, use_container_width=True)
+    else:
+        st.info("Henüz kayıtlı analiz yok. Terminalden ilk analizini yap!")
