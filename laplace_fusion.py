@@ -4,33 +4,30 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import os
 from datetime import datetime
 
-# --- LAPLACE FÜZYON MOTORU V1.1 (ZAMAN UYUMLU) ---
+# --- LAPLACE FÜZYON MOTORU V1.2 (ZAMAN GARANTİLİ) ---
 # Görev: Teknik verileri, NLP duygu puanlarıyla birleştirerek eğitilebilir tek bir CSV oluşturmak.
 
 DATA_DIR = "laplace_dataset"
 
-# Yalnızca bu fonksiyonu değiştir:
 def load_data():
     """Kazılmış Teknik ve Haber verilerini yükler."""
     try:
-        # Teknik veriyi yükle
         tech_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_TECH_DATASET.csv'), index_col=0)
-        # Haber verisini yükle
         news_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_NEWS_DATASET.csv'))
         
-        # --- FIX: DATETIME VE ACCESSOR HATASI ÇÖZÜMÜ ---
+        # --- FIX: DATETIME ACCESSOR HATASI ÇÖZÜMÜ ---
         
-        # 1. Haber tarihini 'mixed' formatıyla zorla dönüştür. Hata verenleri NaT yap.
-        news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce')
+        # 1. Haber tarihini dönüştür: 'mixed' formatı kullan, HATA VERENLERİ NaT yap VE UTC ZAMAN DİLİMİ KULLAN (utc=True).
+        news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce', utc=True)
         
-        # 2. Hata veren NaT (Not a Time) satırlarını temizle. (Bu, hatalı metinleri atar)
+        # 2. Hata veren (NaT) satırları temizle. Artık sadece geçerli tarihler kaldı.
         news_df.dropna(subset=['date'], inplace=True)
         
-        # 3. Artık sütunun datetime olduğundan eminiz, sadece tarihi al.
-        news_df['date'] = news_df['date'].dt.date
+        # 3. Tarih sütununun DATETIME olduğundan eminiz, sadece tarihi alıyoruz.
+        news_df['date'] = news_df['date'].dt.normalize().dt.date
         
-        # Teknik veri indeksini datetime'a çevir (Artık sorun çıkmamalı)
-        tech_df.index = pd.to_datetime(tech_df.index)
+        # Teknik veri indeksini datetime'a çevir
+        tech_df.index = pd.to_datetime(tech_df.index).dt.date
         
         # --- FIX BİTTİ ---
 
@@ -39,20 +36,19 @@ def load_data():
     except FileNotFoundError:
         print("❌ HATA: Gerekli CSV dosyaları bulunamadı. Lütfen önce laplace_miner.py'yi çalıştırın.")
         exit()
+
 def run_sentiment_analysis(news_df):
     """VADER kullanarak haber metinlerine sayısal duygu puanı verir."""
     
-    # NLP motorunu başlat
     analyzer = SentimentIntensityAnalyzer()
     
-    # Duygu puanını hesapla (-1.0 ile +1.0 arası)
     news_df['sentiment_score'] = news_df['text'].apply(
         lambda x: analyzer.polarity_scores(str(x))['compound']
     )
     
     print("✅ Duygu Analizi Tamamlandı.")
     
-    # Aynı güne ait tüm haberlerin ortalama duygu puanını hesapla (Genel piyasa duyarlılığı)
+    # Günlük Ortalama Duygu Puanını Hesapla
     daily_sentiment = news_df.groupby('date')['sentiment_score'].mean().reset_index()
     daily_sentiment.columns = ['Date', 'Market_Sentiment']
     
@@ -61,20 +57,13 @@ def run_sentiment_analysis(news_df):
 def merge_and_save(tech_df, daily_sentiment):
     """Teknik ve Duygu verilerini birleştirip kaydeder."""
     
-    # Teknik veri indeksini Duygu verisinin tarih formatına eşitle (YYYY-MM-DD)
-    tech_df.index.name = 'Date'
+    # Birleştirme için index'i ve sütunu eşitle
+    tech_df.rename(columns={'Date': 'Date_Index'}, inplace=True) # İndex adını koru
     
-    # Birleştirme (Merging): Teknik veriye Duygu puanını ekle
-    # Not: pd.to_datetime(tech_df.index).dt.date yapınca Date index'ini kaybettiği için yeniden to_datetime yapmak gerekebilir
+    # Birleştirme (Merging): Basit tarih sütununa göre yap
+    final_df = pd.merge(tech_df, daily_sentiment, left_on='Date', right_on='Date', how='left')
     
-    # Teknik veri index'ini (tarih) basit date formatına çevir
-    tech_df.reset_index(inplace=True)
-    tech_df['Date'] = pd.to_datetime(tech_df['Date']).dt.date
-
-    # Birleştirme: Sadece tarih sütununa göre yap
-    final_df = pd.merge(tech_df, daily_sentiment, on='Date', how='left')
-    
-    # Duygu puanı olmayan günleri (haber çekilemeyen günler) Nötr (0) olarak doldur.
+    # Duygu puanı olmayan günleri Nötr (0) olarak doldur.
     final_df['Market_Sentiment'].fillna(0, inplace=True)
     
     # NaN satırları düşür ve Target sütunu olmayanları temizle
@@ -104,4 +93,3 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("🏁 YAPAY ZEKA EĞİTİMİ İÇİN VERİ HAZIRDIR.")
     print("="*50)
-
