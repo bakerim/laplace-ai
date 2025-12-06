@@ -4,33 +4,40 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import os
 from datetime import datetime
 
-# --- LAPLACE FÜZYON MOTORU V1.3 ---
+# --- FIX: NLTK ARAMA YOLU GARANTİSİ ---
+# Bu blok, 'vader_lexicon' dosyasını mevcut dizine indirerek LookupError hatasını çözer.
+try:
+    # Analyzer'ı başlatmayı dene
+    SentimentIntensityAnalyzer()
+except LookupError:
+    # Hata varsa, NLTK'yı mevcut dizine indir.
+    print("--- NLTK Veri Eksik, İndiriliyor... (Bu sadece bir kere olur) ---")
+    nltk.download('vader_lexicon', quiet=True)
+    print("--- NLTK Veri İndirme Tamamlandı. ---")
+
+# --- LAPLACE FÜZYON MOTORU V1.4 ---
+# Görev: Teknik verileri, NLP duygu puanlarıyla birleştirerek eğitilebilir tek bir CSV oluşturmak.
 
 DATA_DIR = "laplace_dataset"
 
 def load_data():
     """Kazılmış Teknik ve Haber verilerini yükler."""
-    # Değişkenleri try bloğu dışında tanımla (NameError'ı engellemek için)
     tech_df = pd.DataFrame()
     news_df = pd.DataFrame()
 
     try:
-        # Teknik veriyi yükle
         tech_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_TECH_DATASET.csv'), index_col=0)
-        # Haber verisini yükle
         news_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_NEWS_DATASET.csv'))
         
-        # Eğer yükleme başarılıysa, indeksleri ve sütunları temizle
-        
-        # 1. Teknik Veri İndeksini Temizle (Artık NameError vermemeli)
-        tech_df.index = pd.to_datetime(tech_df.index)
-        tech_df.index = tech_df.index.date # DatetimeIndex yerine sadece tarih al
-
-        # 2. Haber Tarihini Temizle (Önceki fix)
+        # 1. Haber Tarihini Temizle
         news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce', utc=True)
         news_df.dropna(subset=['date'], inplace=True)
         news_df['date'] = news_df['date'].dt.normalize().dt.date
         
+        # 2. Teknik Veri İndeksini Temizle
+        tech_df.index = pd.to_datetime(tech_df.index)
+        tech_df.index = tech_df.index.date 
+
         print(f"✅ Veriler Yüklendi. Teknik: {len(tech_df)} satır. Haber: {len(news_df)} satır.")
         return tech_df, news_df
     
@@ -39,7 +46,6 @@ def load_data():
         exit()
     except Exception as e:
         print(f"❌ KRİTİK VERİ HATASI: {e}")
-        # Bu hata ile karşılaşılırsa, boş DataFrame döndür.
         return pd.DataFrame(), pd.DataFrame()
 
 def run_sentiment_analysis(news_df):
@@ -49,7 +55,8 @@ def run_sentiment_analysis(news_df):
         print("⚠️ Duygu Analizi İçin Haber Verisi Yok.")
         return pd.DataFrame()
 
-    analyzer = SentimentIntensityAnalyzer()
+    # NLTK fix'i sayesinde bu satır artık çalışmalı
+    analyzer = SentimentIntensityAnalyzer() 
     
     # Duygu puanını hesapla
     news_df['sentiment_score'] = news_df['text'].apply(
@@ -71,7 +78,7 @@ def merge_and_save(tech_df, daily_sentiment):
         print("⚠️ Birleştirme İçin Teknik Veri Yok.")
         return
 
-    # Teknik veri index'ini (tarih) sütuna çevirip birleştirme için hazırlar
+    # Teknik veri index'ini sütuna çevirip birleştirme için hazırlar
     tech_df['Date'] = tech_df.index
     
     # Birleştirme: Basit tarih sütununa göre yap
