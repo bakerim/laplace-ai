@@ -3,49 +3,9 @@ import pandas as pd
 import yfinance as yf
 import google.generativeai as genai
 import plotly.graph_objects as go
-import sqlite3
-import json
-import time
-from datetime import datetime
 
-# --- LAPLACE: SÜRÜM 1.4 (CANLI HAFIZA & REFRESH) ---
+# --- LAPLACE: SÜRÜM 1.5 (LITE - SAF ANALİZ) ---
 st.set_page_config(page_title="LAPLACE: Neural Terminal", page_icon="📐", layout="wide")
-
-# --- DATABASE KURULUMU ---
-def init_db():
-    conn = sqlite3.connect('laplace_memory.db', check_same_thread=False)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS signals
-                 (date TEXT, ticker TEXT, price REAL, rsi REAL, score INTEGER, signal TEXT, reason TEXT)''')
-    conn.commit()
-    conn.close()
-
-def save_signal(ticker, price, rsi, score, signal, reason):
-    try:
-        conn = sqlite3.connect('laplace_memory.db', check_same_thread=False)
-        c = conn.cursor()
-        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-        c.execute("INSERT INTO signals VALUES (?,?,?,?,?,?,?)", 
-                  (date_str, ticker, price, rsi, score, signal, reason))
-        conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        st.error(f"Veritabanı Hatası: {e}")
-        return False
-
-def load_history():
-    try:
-        conn = sqlite3.connect('laplace_memory.db', check_same_thread=False)
-        # En yeniden en eskiye sırala
-        df = pd.read_sql_query("SELECT * FROM signals ORDER BY date DESC", conn)
-        conn.close()
-        return df
-    except:
-        return pd.DataFrame()
-
-# Veritabanını başlat
-init_db()
 
 # --- API KONTROL ---
 try:
@@ -90,12 +50,12 @@ def calculate_rsi(data, window=14):
     rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-# --- MOTOR FONKSİYONLARI ---
+# --- MOTOR FONKSİYONLARI (TURBO CACHE) ---
 @st.cache_data(ttl=600) 
 def get_market_data(ticker):
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period="3mo")
+        hist = stock.history(period="3mo") # 3 Aylık veri yeterli
         if hist.empty: return None, None
         
         hist['SMA50'] = hist['Close'].rolling(50).mean()
@@ -105,7 +65,7 @@ def get_market_data(ticker):
         sma50 = hist['SMA50'].iloc[-1] if not pd.isna(hist['SMA50'].iloc[-1]) else current_price
         rsi = hist['RSI'].iloc[-1] if not pd.isna(hist['RSI'].iloc[-1]) else 50
         
-        trend = "POZİTİF" if current_price > sma50 else "NEGATİF"
+        trend = "POZİTİF (Yükseliş)" if current_price > sma50 else "NEGATİF (Düşüş)"
         
         summary = {
             "price": current_price,
@@ -125,6 +85,7 @@ def get_live_news(ticker):
         return [f"- {n['title']}" for n in news[:3]]
     except: return []
 
+# --- GRAFİK MODÜLÜ ---
 def plot_chart(df, ticker):
     fig = go.Figure(data=[go.Candlestick(x=df.index,
                 open=df['Open'], high=df['High'],
@@ -133,10 +94,10 @@ def plot_chart(df, ticker):
     fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], mode='lines', name='SMA 50', line=dict(color='#FFA500', width=1)))
 
     fig.update_layout(
-        title=f'{ticker} - 3 Aylık Trend',
+        title=f'{ticker} - Teknik Görünüm (3 Ay)',
         yaxis_title='Fiyat (USD)',
         template='plotly_dark',
-        height=350,
+        height=400,
         margin=dict(l=10, r=10, t=40, b=10),
         plot_bgcolor='#0e1117',
         paper_bgcolor='#0e1117',
@@ -144,23 +105,32 @@ def plot_chart(df, ticker):
     )
     return fig
 
+# --- AI MOTORU ---
 def laplace_engine(ticker, data, news):
     model = genai.GenerativeModel('gemini-2.0-flash-exp')
     news_text = "\n".join(news) if news else "Veri Yok"
     
     prompt = f"""
     SİSTEM: LAPLACE AI
-    VARLIK: {ticker} | FİYAT: ${data['price']:.2f} | RSI: {data['rsi']:.2f}
-    HABERLER: {news_text}
+    VARLIK: {ticker} | FİYAT: ${data['price']:.2f} 
+    TREND: {data['trend']} | RSI: {data['rsi']:.2f}
+    
+    HABERLER:
+    {news_text}
+    
+    ANALİZ PROTOKOLÜ:
+    1. Teknik ve Temel verileri sentezle.
+    2. RSI > 70 ise "Satış/Düzeltme" ihtimalini, < 30 ise "Tepki Alımı" ihtimalini değerlendir.
+    3. Haberlerin trendi destekleyip desteklemediğine bak.
     
     ÇIKTI (JSON):
     {{
         "score": (0-100),
-        "signal": "STRONG BUY | BUY | WAIT | SELL",
-        "reason": "Kısa teknik/temel özet.",
-        "entry": (Fiyat),
-        "target": (Hedef),
-        "stop": (Stop)
+        "signal": "STRONG BUY | BUY | WAIT | SELL | STRONG SELL",
+        "reason": "Teknik ve Temel sentez özeti (Max 2 cümle).",
+        "entry": (Şu anki fiyat veya ideal giriş),
+        "target": (Kısa vade hedef),
+        "stop": (Zarar kes)
     }}
     """
     try:
@@ -171,68 +141,44 @@ def laplace_engine(ticker, data, news):
 
 def display_laplace_card(res, ticker):
     score = res['score']
-    if score >= 90: c, sig = "tier-s", "ALPHA"
-    elif score >= 75: c, sig = "tier-a", "BETA"
-    elif score >= 60: c, sig = "tier-b", "GAMMA"
-    else: c, sig = "tier-f", "DELTA"
+    if score >= 90: c, sig = "tier-s", "ALPHA (MÜKEMMEL)"
+    elif score >= 75: c, sig = "tier-a", "BETA (GÜÇLÜ)"
+    elif score >= 60: c, sig = "tier-b", "GAMMA (NORMAL)"
+    else: c, sig = "tier-f", "DELTA (RİSKLİ/ZAYIF)"
     
     html = f"""<div class="card {c}"><div class="card-header"><div>{ticker} <span style="font-size:0.6em; color:#888;">{sig}</span></div><div class="score-box">{score}</div></div><div class="analysis-text">{res['reason']}</div><div class="data-grid"><div class="grid-item"><div class="label">SİNYAL</div><div class="value" style="color:#58a6ff;">{res['signal']}</div></div><div class="grid-item"><div class="label">GİRİŞ</div><div class="value">${res['entry']}</div></div><div class="grid-item"><div class="label">HEDEF</div><div class="value">${res['target']}</div></div><div class="grid-item"><div class="label">STOP</div><div class="value" style="color:#da3633;">${res['stop']}</div></div></div></div>"""
     st.markdown(html, unsafe_allow_html=True)
 
 # --- ARAYÜZ AKIŞI ---
-st.title("📐 LAPLACE v1.4")
+st.title("📐 LAPLACE: Canlı Terminal")
 
-tab1, tab2 = st.tabs(["⚡ Terminal", "💾 Hafıza Kayıtları"])
+col1, col2 = st.columns([3, 1])
+with col1:
+    ticker = st.selectbox("Varlık Seçimi", WATCHLIST)
+with col2:
+    analyze_btn = st.button("HESAPLA ⚡", use_container_width=True, type="primary")
 
-# --- TAB 1: TERMİNAL ---
-with tab1:
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        ticker = st.selectbox("Varlık Seçimi", WATCHLIST)
-    with col2:
-        analyze_btn = st.button("HESAPLA ⚡", use_container_width=True, type="primary")
-
-    if analyze_btn:
-        with st.spinner("Laplace Motoru Çalışıyor..."):
-            market_data, history_df = get_market_data(ticker)
-            news_data = get_live_news(ticker)
+if analyze_btn:
+    with st.spinner("Piyasa verileri işleniyor..."):
+        # 1. Veri Çek
+        market_data, history_df = get_market_data(ticker)
+        news_data = get_live_news(ticker)
+        
+        if market_data:
+            # 2. Grafik Çiz
+            st.markdown("### 📈 Teknik Analiz")
+            chart = plot_chart(history_df, ticker)
+            st.plotly_chart(chart, use_container_width=True)
             
-            if market_data:
-                # Grafiği Çiz
-                st.markdown("### 📈 Teknik Görünüm")
-                chart = plot_chart(history_df, ticker)
-                st.plotly_chart(chart, use_container_width=True)
-                
-                # AI Analizi
-                result = laplace_engine(ticker, market_data, news_data)
-                
-                if result:
-                    st.markdown("### 🧠 AI Analizi")
-                    display_laplace_card(result, ticker)
-                    
-                    # KAYIT İŞLEMİ VE RERUN
-                    success = save_signal(ticker, market_data['price'], market_data['rsi'], 
-                                result['score'], result['signal'], result['reason'])
-                    
-                    if success:
-                        st.success(f"✅ {ticker} analizi veritabanına işlendi.")
-                        time.sleep(1) # Kullanıcı mesajı görsün diye bekle
-                        st.rerun() # SAYFAYI YENİLE Kİ TABLOYA DÜŞSÜN
-                    
-            else:
-                st.error("Veri kaynağına erişilemedi.")
-
-# --- TAB 2: HAFIZA ---
-with tab2:
-    col_a, col_b = st.columns([4,1])
-    with col_a:
-        st.markdown("### 🗄️ Laplace Veri Seti")
-    with col_b:
-        if st.button("🔄 Tabloyu Yenile"):
-            st.rerun()
+            # 3. AI Kararı
+            result = laplace_engine(ticker, market_data, news_data)
             
-    history = load_history()
-    if not history.empty:
-        st.dataframe(history, use_container_width=True)
-    else:
-        st.info("Henüz kayıtlı analiz yok. Terminalden ilk analizini yap!")
+            if result:
+                st.markdown("### 🧠 Yapay Zeka Görüşü")
+                display_laplace_card(result, ticker)
+                
+                with st.expander("Detaylı Veri Dökümü"):
+                    st.json(market_data)
+                    st.write("Son Haberler:", news_data)
+        else:
+            st.error("Veri alınamadı. Piyasa kapalı olabilir veya API limiti dolmuş olabilir.")
