@@ -1,6 +1,6 @@
 import yfinance as yf
 import pandas as pd
-import ta as ta_lib # HATA DÜZELTİLDİ: Artık kurduğun 'ta' kütüphanesini kullanıyor
+import ta # YENİ BASİT İSİM (ta_lib'i kaldırdık)
 from newspaper import Article, build
 from datetime import datetime, timedelta
 import os
@@ -130,3 +130,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
