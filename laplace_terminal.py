@@ -4,9 +4,9 @@ import yfinance as yf
 import google.generativeai as genai
 import requests
 import json
-import plotly.graph_objects as go # Grafik için
+import plotly.graph_objects as go  # <-- İŞTE BU SATIR YENİ
 
-# --- LAPLACE: SÜRÜM 1.1 ---
+# --- LAPLACE: SÜRÜM 1.1 (GRAFİK MODÜLÜ) ---
 st.set_page_config(page_title="LAPLACE: Neural Terminal", page_icon="📐", layout="wide")
 
 # --- API KONTROL ---
@@ -65,8 +65,8 @@ def get_market_data(ticker):
         hist['RSI'] = calculate_rsi(hist['Close'])
         
         current_price = hist['Close'].iloc[-1]
-        sma50 = hist['SMA50'].iloc[-1]
-        rsi = hist['RSI'].iloc[-1]
+        sma50 = hist['SMA50'].iloc[-1] if not pd.isna(hist['SMA50'].iloc[-1]) else current_price
+        rsi = hist['RSI'].iloc[-1] if not pd.isna(hist['RSI'].iloc[-1]) else 50
         
         trend = "NÖTR"
         if current_price > sma50: trend = "POZİTİF (SMA50 Üstü)"
@@ -91,19 +91,23 @@ def get_live_news(ticker):
 
 # --- GRAFİK ÇİZEN FONKSİYON ---
 def plot_chart(df, ticker):
+    # Mum Grafiği
     fig = go.Figure(data=[go.Candlestick(x=df.index,
                 open=df['Open'], high=df['High'],
                 low=df['Low'], close=df['Close'], name=ticker)])
     
     # SMA 50 Çizgisi
-    fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], mode='lines', name='SMA 50', line=dict(color='orange', width=1)))
+    fig.add_trace(go.Scatter(x=df.index, y=df['SMA50'], mode='lines', name='SMA 50', line=dict(color='#FFA500', width=1)))
 
     fig.update_layout(
-        title=f'{ticker} Fiyat Analizi',
+        title=f'{ticker} - 6 Aylık Trend Analizi',
         yaxis_title='Fiyat (USD)',
-        template='plotly_dark',
-        height=400,
-        margin=dict(l=20, r=20, t=40, b=20)
+        template='plotly_dark', # Karanlık Tema
+        height=500,
+        margin=dict(l=20, r=20, t=50, b=20),
+        plot_bgcolor='#0e1117',
+        paper_bgcolor='#0e1117',
+        xaxis_rangeslider_visible=False 
     )
     return fig
 
@@ -167,7 +171,7 @@ with col2:
 
 if st.session_state.get('run'):
     with st.spinner("Laplace Motoru Çalışıyor..."):
-        # Veriyi çek (Hem özet hem geçmiş veri)
+        # Veriyi çek
         market_data, history_df = get_market_data(ticker)
         news_data = get_live_news(ticker)
         
@@ -177,7 +181,7 @@ if st.session_state.get('run'):
             if result:
                 display_laplace_card(result, ticker)
                 
-                # 2. Grafik Alanı (YENİ)
+                # 2. GRAFİK ALANI (Eski versiyonda burası yoktu!)
                 st.markdown("### 📈 Teknik Görünüm")
                 chart = plot_chart(history_df, ticker)
                 st.plotly_chart(chart, use_container_width=True)
