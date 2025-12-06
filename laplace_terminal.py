@@ -201,4 +201,8 @@ if analyze_btn:
         with col_gemini:
             # GEMINI ANALİZ KARTI (Mevcut Zeka)
             st.markdown(f"### 🧠 Gemini AI Analizi (Skor: {gemini_result.get('score', 'N/A')})")
+<<<<<<< HEAD
             st.json(gemini_result)
+=======
+            st.json(gemini_result)
+>>>>>>> b0335e573d182e10486268b18801e13984b4d3a0
