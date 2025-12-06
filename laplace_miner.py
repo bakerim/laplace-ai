@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import os
 import time
 
-# --- LAPLACE: ÇOKLU VERİ MADENCİSİ V3.2 ---
+# --- LAPLACE: ÇOKLU VERİ MADENCİSİ V3.3 ---
 
 TICKERS = [
     'NVDA', 'TSLA', 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'META', 'AMD', 'PLTR'
@@ -33,13 +33,12 @@ def mine_technical_data(ticker):
             print(" ❌ Veri Boş")
             return None
         
-        # --- PANDAS UYUMLULUK FIX ---
+        # --- PANDAS UYUMLULUK FIX (V3.3) ---
         if isinstance(df.columns, pd.MultiIndex):
-            # Eğer MultiIndex gelirse, top-level indexi alıp sütunları düzleştir.
-            df.columns = df.columns.get_level_values(0)
+            # En güvenli yöntem: İkinci (redundant) seviyeyi atarak sütunları tek seviyeye indir
+            df = df.droplevel(1, axis=1)
         
-        # Sütun isimlerini küçük harfe çevir (API'ye uygunluk)
-        df.columns = [col.lower() for col in df.columns]
+        df.columns = [col.lower() for col in df.columns] # Sütun isimlerini küçük harfe çevir
         df.index = df.index.strftime('%Y-%m-%d')
         # --- FIX BİTTİ ---
 
@@ -102,7 +101,7 @@ def mine_news_data():
                      print(f"   [-- {len(all_news)} makale indirildi --]")
                      
         except Exception as e:
-            pass # Haber kaynağı hatası için sessizce devam et
+            pass
             
     return pd.DataFrame(all_news)
 
