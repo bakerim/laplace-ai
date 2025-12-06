@@ -2,23 +2,29 @@ import pandas as pd
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import os
-import time
+from datetime import datetime
 
-# --- LAPLACE FÜZYON MOTORU ---
-# Görev: Teknik ve Haber verilerini birleştirerek eğitilebilir tek bir CSV oluşturmak.
+# --- LAPLACE FÜZYON MOTORU V1.1 (ZAMAN UYUMLU) ---
+# Görev: Teknik verileri, NLP duygu puanlarıyla birleştirerek eğitilebilir tek bir CSV oluşturmak.
 
 DATA_DIR = "laplace_dataset"
 
 def load_data():
     """Kazılmış Teknik ve Haber verilerini yükler."""
     try:
+        # Teknik veriyi yükle
         tech_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_TECH_DATASET.csv'), index_col=0)
+        # Haber verisini yükle
         news_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_NEWS_DATASET.csv'))
         
-        # Tarih sütununu datetime formatına çevir
+        # Tarih sütunlarını datetime formatına çevirirken esnek ol.
+        # FIX: ValueError'ı çözmek için format='mixed' ve hataları yoksay ('coerce') kullanılır.
         tech_df.index = pd.to_datetime(tech_df.index)
-        news_df['date'] = pd.to_datetime(news_df['date']).dt.date # Saat bilgisini at
+        news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce').dt.date 
         
+        # Tarih hatalarından (NaN) kurtul
+        news_df.dropna(subset=['date'], inplace=True)
+
         print(f"✅ Veriler Yüklendi. Teknik: {len(tech_df)} satır. Haber: {len(news_df)} satır.")
         return tech_df, news_df
     except FileNotFoundError:
@@ -31,21 +37,14 @@ def run_sentiment_analysis(news_df):
     # NLP motorunu başlat
     analyzer = SentimentIntensityAnalyzer()
     
-    # TextBlob'a benzer şekilde VADER, metinleri tarayıp duygusal yoğunluk (bileşik/compound) puanı verir.
-    # Puan -1 (en negatif) ile +1 (en pozitif) arasındadır.
-    
+    # Duygu puanını hesapla (-1.0 ile +1.0 arası)
     news_df['sentiment_score'] = news_df['text'].apply(
-        lambda x: analyzer.polarity_scores(x)['compound']
+        lambda x: analyzer.polarity_scores(str(x))['compound']
     )
     
     print("✅ Duygu Analizi Tamamlandı.")
     
-    # Aynı gün ve aynı hisse için birden fazla haber varsa, ortalama duygu puanını al.
-    
-    # Ticker'ı bulmak için basit bir regex kullanıyoruz (Bu kısım ileride gelişebilir)
-    # Şimdilik haber metinlerinin içinde hisse isimlerini aramayacağız. Sadece genel piyasa haberlerini baz alacağız.
-    
-    # Günlük Ortalama Duygu Puanını Hesapla (Tüm piyasa için genel duyarlılık)
+    # Aynı güne ait tüm haberlerin ortalama duygu puanını hesapla (Genel piyasa duyarlılığı)
     daily_sentiment = news_df.groupby('date')['sentiment_score'].mean().reset_index()
     daily_sentiment.columns = ['Date', 'Market_Sentiment']
     
@@ -54,10 +53,17 @@ def run_sentiment_analysis(news_df):
 def merge_and_save(tech_df, daily_sentiment):
     """Teknik ve Duygu verilerini birleştirip kaydeder."""
     
-    # Teknik veri indeksini Duygu verisinin tarih formatına eşitle
+    # Teknik veri indeksini Duygu verisinin tarih formatına eşitle (YYYY-MM-DD)
     tech_df.index.name = 'Date'
     
     # Birleştirme (Merging): Teknik veriye Duygu puanını ekle
+    # Not: pd.to_datetime(tech_df.index).dt.date yapınca Date index'ini kaybettiği için yeniden to_datetime yapmak gerekebilir
+    
+    # Teknik veri index'ini (tarih) basit date formatına çevir
+    tech_df.reset_index(inplace=True)
+    tech_df['Date'] = pd.to_datetime(tech_df['Date']).dt.date
+
+    # Birleştirme: Sadece tarih sütununa göre yap
     final_df = pd.merge(tech_df, daily_sentiment, on='Date', how='left')
     
     # Duygu puanı olmayan günleri (haber çekilemeyen günler) Nötr (0) olarak doldur.
@@ -68,7 +74,7 @@ def merge_and_save(tech_df, daily_sentiment):
     
     # Final dosyayı kaydet
     FINAL_FILE = 'laplace_FINAL_TRAINING_SET.csv'
-    final_df.to_csv(os.path.join(DATA_DIR, FINAL_FILE))
+    final_df.to_csv(os.path.join(DATA_DIR, FINAL_FILE), index=False)
     
     print(f"✅ Veri Birleştirme (Füzyon) Tamamlandı.")
     print(f"💾 Nihai Eğitim Seti Kaydedildi: {FINAL_FILE} ({len(final_df)} satır)")
