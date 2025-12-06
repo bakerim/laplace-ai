@@ -5,35 +5,44 @@ import google.generativeai as genai
 import plotly.graph_objects as go
 import sqlite3
 import json
+import time
 from datetime import datetime
 
-# --- LAPLACE: SÜRÜM 1.3 (HAFIZA & DB) ---
+# --- LAPLACE: SÜRÜM 1.4 (CANLI HAFIZA & REFRESH) ---
 st.set_page_config(page_title="LAPLACE: Neural Terminal", page_icon="📐", layout="wide")
 
-# --- DATABASE KURULUMU (OTOMATİK) ---
+# --- DATABASE KURULUMU ---
 def init_db():
-    conn = sqlite3.connect('laplace_memory.db')
+    conn = sqlite3.connect('laplace_memory.db', check_same_thread=False)
     c = conn.cursor()
-    # Tablo yoksa oluştur
     c.execute('''CREATE TABLE IF NOT EXISTS signals
                  (date TEXT, ticker TEXT, price REAL, rsi REAL, score INTEGER, signal TEXT, reason TEXT)''')
     conn.commit()
     conn.close()
 
 def save_signal(ticker, price, rsi, score, signal, reason):
-    conn = sqlite3.connect('laplace_memory.db')
-    c = conn.cursor()
-    date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
-    c.execute("INSERT INTO signals VALUES (?,?,?,?,?,?,?)", 
-              (date_str, ticker, price, rsi, score, signal, reason))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('laplace_memory.db', check_same_thread=False)
+        c = conn.cursor()
+        date_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        c.execute("INSERT INTO signals VALUES (?,?,?,?,?,?,?)", 
+                  (date_str, ticker, price, rsi, score, signal, reason))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        st.error(f"Veritabanı Hatası: {e}")
+        return False
 
 def load_history():
-    conn = sqlite3.connect('laplace_memory.db')
-    df = pd.read_sql_query("SELECT * FROM signals ORDER BY date DESC LIMIT 50", conn)
-    conn.close()
-    return df
+    try:
+        conn = sqlite3.connect('laplace_memory.db', check_same_thread=False)
+        # En yeniden en eskiye sırala
+        df = pd.read_sql_query("SELECT * FROM signals ORDER BY date DESC", conn)
+        conn.close()
+        return df
+    except:
+        return pd.DataFrame()
 
 # Veritabanını başlat
 init_db()
@@ -171,11 +180,11 @@ def display_laplace_card(res, ticker):
     st.markdown(html, unsafe_allow_html=True)
 
 # --- ARAYÜZ AKIŞI ---
-st.title("📐 LAPLACE v1.3 (Memory)")
+st.title("📐 LAPLACE v1.4")
 
-# Sekmeler
 tab1, tab2 = st.tabs(["⚡ Terminal", "💾 Hafıza Kayıtları"])
 
+# --- TAB 1: TERMİNAL ---
 with tab1:
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -189,26 +198,39 @@ with tab1:
             news_data = get_live_news(ticker)
             
             if market_data:
+                # Grafiği Çiz
                 st.markdown("### 📈 Teknik Görünüm")
                 chart = plot_chart(history_df, ticker)
                 st.plotly_chart(chart, use_container_width=True)
                 
+                # AI Analizi
                 result = laplace_engine(ticker, market_data, news_data)
                 
                 if result:
                     st.markdown("### 🧠 AI Analizi")
                     display_laplace_card(result, ticker)
                     
-                    # --- HAFIZAYA KAYDETME ANI ---
-                    save_signal(ticker, market_data['price'], market_data['rsi'], 
+                    # KAYIT İŞLEMİ VE RERUN
+                    success = save_signal(ticker, market_data['price'], market_data['rsi'], 
                                 result['score'], result['signal'], result['reason'])
-                    st.toast(f"✅ {ticker} analizi veritabanına kaydedildi!", icon="💾")
+                    
+                    if success:
+                        st.success(f"✅ {ticker} analizi veritabanına işlendi.")
+                        time.sleep(1) # Kullanıcı mesajı görsün diye bekle
+                        st.rerun() # SAYFAYI YENİLE Kİ TABLOYA DÜŞSÜN
                     
             else:
                 st.error("Veri kaynağına erişilemedi.")
 
+# --- TAB 2: HAFIZA ---
 with tab2:
-    st.markdown("### 🗄️ Laplace Veri Seti (Son 50 Sinyal)")
+    col_a, col_b = st.columns([4,1])
+    with col_a:
+        st.markdown("### 🗄️ Laplace Veri Seti")
+    with col_b:
+        if st.button("🔄 Tabloyu Yenile"):
+            st.rerun()
+            
     history = load_history()
     if not history.empty:
         st.dataframe(history, use_container_width=True)
