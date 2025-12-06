@@ -1,0 +1,6 @@
+streamlit
+pandas
+yfinance
+google-generativeai
+requests
+# newspaper3k # (İleride veri madenciliği için bunu da açacağız)
