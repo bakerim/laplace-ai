@@ -9,25 +9,19 @@ from datetime import datetime
 
 DATA_DIR = "laplace_dataset"
 
+# Yalnızca bu fonksiyonu değiştir (Line 30 ve civarı)
 def load_data():
     """Kazılmış Teknik ve Haber verilerini yükler."""
     try:
-        tech_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_TECH_DATASET.csv'), index_col=0)
-        news_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_NEWS_DATASET.csv'))
+        # ... (Önceki kod)
         
-        # --- FIX: DATETIME ACCESSOR HATASI ÇÖZÜMÜ ---
+        # Teknik veri indeksini temizle
+        tech_df.index = pd.to_datetime(tech_df.index)
         
-        # 1. Haber tarihini dönüştür: 'mixed' formatı kullan, HATA VERENLERİ NaT yap VE UTC ZAMAN DİLİMİ KULLAN (utc=True).
-        news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce', utc=True)
-        
-        # 2. Hata veren (NaT) satırları temizle. Artık sadece geçerli tarihler kaldı.
-        news_df.dropna(subset=['date'], inplace=True)
-        
-        # 3. Tarih sütununun DATETIME olduğundan eminiz, sadece tarihi alıyoruz.
-        news_df['date'] = news_df['date'].dt.normalize().dt.date
-        
-        # Teknik veri indeksini datetime'a çevir
-        tech_df.index = pd.to_datetime(tech_df.index).dt.date
+        # --- FIX: DATETIMEINDEX UYUMSUZLUĞU ÇÖZÜMÜ ---
+        # 1. Zaten DatetimeIndex olduğu için tekrar pd.to_datetime kullanmıyoruz.
+        # 2. Sadece indeksteki date bilgisini alıyoruz.
+        tech_df.index = tech_df.index.date 
         
         # --- FIX BİTTİ ---
 
@@ -93,3 +87,4 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("🏁 YAPAY ZEKA EĞİTİMİ İÇİN VERİ HAZIRDIR.")
     print("="*50)
+
