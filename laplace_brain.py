@@ -6,11 +6,13 @@ from sklearn.model_selection import train_test_split
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 
-# --- LAPLACE BEYİN MOTORU V2.0 (TEMİZ VERİ) ---
+# --- laplace_brain.py'nin başı (Import'lardan sonra) ---
 
 DATA_FILE = 'laplace_FINAL_TRAINING_SET.csv'
-DATA_PATH = os.path.join("laplace_dataset", DATA_FILE)
+DATA_DIR = 'laplace_dataset' # <--- YENİ EKLENEN SATIR
+DATA_PATH = os.path.join(DATA_DIR, DATA_FILE)
 
+# ... (kodun geri kalanı)
 # Veri setini LSTM için uygun hale getirme (Zaman Serisi Dönüşümü)
 def create_sequences(data, sequence_length):
     """Veriyi, LSTM'in anlayacağı N günlük serilere dönüştürür."""
@@ -107,3 +109,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
