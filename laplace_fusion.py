@@ -9,6 +9,7 @@ from datetime import datetime
 
 DATA_DIR = "laplace_dataset"
 
+# Yalnızca bu fonksiyonu değiştir:
 def load_data():
     """Kazılmış Teknik ve Haber verilerini yükler."""
     try:
@@ -17,20 +18,27 @@ def load_data():
         # Haber verisini yükle
         news_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_NEWS_DATASET.csv'))
         
-        # Tarih sütunlarını datetime formatına çevirirken esnek ol.
-        # FIX: ValueError'ı çözmek için format='mixed' ve hataları yoksay ('coerce') kullanılır.
-        tech_df.index = pd.to_datetime(tech_df.index)
-        news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce').dt.date 
+        # --- FIX: DATETIME VE ACCESSOR HATASI ÇÖZÜMÜ ---
         
-        # Tarih hatalarından (NaN) kurtul
+        # 1. Haber tarihini 'mixed' formatıyla zorla dönüştür. Hata verenleri NaT yap.
+        news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce')
+        
+        # 2. Hata veren NaT (Not a Time) satırlarını temizle. (Bu, hatalı metinleri atar)
         news_df.dropna(subset=['date'], inplace=True)
+        
+        # 3. Artık sütunun datetime olduğundan eminiz, sadece tarihi al.
+        news_df['date'] = news_df['date'].dt.date
+        
+        # Teknik veri indeksini datetime'a çevir (Artık sorun çıkmamalı)
+        tech_df.index = pd.to_datetime(tech_df.index)
+        
+        # --- FIX BİTTİ ---
 
         print(f"✅ Veriler Yüklendi. Teknik: {len(tech_df)} satır. Haber: {len(news_df)} satır.")
         return tech_df, news_df
     except FileNotFoundError:
         print("❌ HATA: Gerekli CSV dosyaları bulunamadı. Lütfen önce laplace_miner.py'yi çalıştırın.")
         exit()
-
 def run_sentiment_analysis(news_df):
     """VADER kullanarak haber metinlerine sayısal duygu puanı verir."""
     
@@ -96,3 +104,4 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("🏁 YAPAY ZEKA EĞİTİMİ İÇİN VERİ HAZIRDIR.")
     print("="*50)
+
