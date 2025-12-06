@@ -4,38 +4,54 @@ from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import os
 from datetime import datetime
 
-# --- LAPLACE FÜZYON MOTORU V1.2 (ZAMAN GARANTİLİ) ---
-# Görev: Teknik verileri, NLP duygu puanlarıyla birleştirerek eğitilebilir tek bir CSV oluşturmak.
+# --- LAPLACE FÜZYON MOTORU V1.3 ---
 
 DATA_DIR = "laplace_dataset"
 
-# Yalnızca bu fonksiyonu değiştir (Line 30 ve civarı)
 def load_data():
     """Kazılmış Teknik ve Haber verilerini yükler."""
-    try:
-        # ... (Önceki kod)
-        
-        # Teknik veri indeksini temizle
-        tech_df.index = pd.to_datetime(tech_df.index)
-        
-        # --- FIX: DATETIMEINDEX UYUMSUZLUĞU ÇÖZÜMÜ ---
-        # 1. Zaten DatetimeIndex olduğu için tekrar pd.to_datetime kullanmıyoruz.
-        # 2. Sadece indeksteki date bilgisini alıyoruz.
-        tech_df.index = tech_df.index.date 
-        
-        # --- FIX BİTTİ ---
+    # Değişkenleri try bloğu dışında tanımla (NameError'ı engellemek için)
+    tech_df = pd.DataFrame()
+    news_df = pd.DataFrame()
 
+    try:
+        # Teknik veriyi yükle
+        tech_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_TECH_DATASET.csv'), index_col=0)
+        # Haber verisini yükle
+        news_df = pd.read_csv(os.path.join(DATA_DIR, 'laplace_NEWS_DATASET.csv'))
+        
+        # Eğer yükleme başarılıysa, indeksleri ve sütunları temizle
+        
+        # 1. Teknik Veri İndeksini Temizle (Artık NameError vermemeli)
+        tech_df.index = pd.to_datetime(tech_df.index)
+        tech_df.index = tech_df.index.date # DatetimeIndex yerine sadece tarih al
+
+        # 2. Haber Tarihini Temizle (Önceki fix)
+        news_df['date'] = pd.to_datetime(news_df['date'], format='mixed', errors='coerce', utc=True)
+        news_df.dropna(subset=['date'], inplace=True)
+        news_df['date'] = news_df['date'].dt.normalize().dt.date
+        
         print(f"✅ Veriler Yüklendi. Teknik: {len(tech_df)} satır. Haber: {len(news_df)} satır.")
         return tech_df, news_df
+    
     except FileNotFoundError:
         print("❌ HATA: Gerekli CSV dosyaları bulunamadı. Lütfen önce laplace_miner.py'yi çalıştırın.")
         exit()
+    except Exception as e:
+        print(f"❌ KRİTİK VERİ HATASI: {e}")
+        # Bu hata ile karşılaşılırsa, boş DataFrame döndür.
+        return pd.DataFrame(), pd.DataFrame()
 
 def run_sentiment_analysis(news_df):
     """VADER kullanarak haber metinlerine sayısal duygu puanı verir."""
     
+    if news_df.empty:
+        print("⚠️ Duygu Analizi İçin Haber Verisi Yok.")
+        return pd.DataFrame()
+
     analyzer = SentimentIntensityAnalyzer()
     
+    # Duygu puanını hesapla
     news_df['sentiment_score'] = news_df['text'].apply(
         lambda x: analyzer.polarity_scores(str(x))['compound']
     )
@@ -51,10 +67,14 @@ def run_sentiment_analysis(news_df):
 def merge_and_save(tech_df, daily_sentiment):
     """Teknik ve Duygu verilerini birleştirip kaydeder."""
     
-    # Birleştirme için index'i ve sütunu eşitle
-    tech_df.rename(columns={'Date': 'Date_Index'}, inplace=True) # İndex adını koru
+    if tech_df.empty:
+        print("⚠️ Birleştirme İçin Teknik Veri Yok.")
+        return
+
+    # Teknik veri index'ini (tarih) sütuna çevirip birleştirme için hazırlar
+    tech_df['Date'] = tech_df.index
     
-    # Birleştirme (Merging): Basit tarih sütununa göre yap
+    # Birleştirme: Basit tarih sütununa göre yap
     final_df = pd.merge(tech_df, daily_sentiment, left_on='Date', right_on='Date', how='left')
     
     # Duygu puanı olmayan günleri Nötr (0) olarak doldur.
@@ -87,4 +107,3 @@ if __name__ == "__main__":
     print("\n" + "="*50)
     print("🏁 YAPAY ZEKA EĞİTİMİ İÇİN VERİ HAZIRDIR.")
     print("="*50)
-
