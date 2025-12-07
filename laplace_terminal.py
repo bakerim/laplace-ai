@@ -146,9 +146,16 @@ st.title("📐 LAPLACE V2.2 (GÜVENLİ ÇALIŞMA)")
 
 if LSTM_MODEL is None or GLOBAL_SCALER is None:
     st.error("⚠️ LSTM Modeli yüklenemedi. Eğitim tamamlandı mı ve tüm dosyalar GitHub'da mı?")
-    st.stop()
-    
-# ... (Geri kalan Arayüz aynı)
+    st.stop() # Hata varsa burada durur
+
+# ----------------------------------------------------
+# KRİTİK EKLENECEK ALAN (Buton ve Selectbox Tanımları)
+# ----------------------------------------------------
+col1, col2 = st.columns([3, 1])
+with col1:
+    ticker = st.selectbox("Varlık Seçimi", WATCHLIST)
+with col2:
+    analyze_btn = st.button("HESAPLA ⚡", use_container_width=True, type="primary") # <--- NameError'ı çözen satır
 if analyze_btn:
     with st.spinner("Laplace Motorları Çalışıyor..."):
         market_data, history_df = get_market_data(ticker)
