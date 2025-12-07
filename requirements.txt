@@ -1,10 +1,12 @@
 streamlit
 pandas
+numpy
 yfinance
-google-generativeai
-requests
 plotly
 tensorflow
 scikit-learn
+joblib
+google-generativeai
+requests
 ta
 nltk
