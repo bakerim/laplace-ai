@@ -3,8 +3,8 @@ import numpy as np
 import joblib
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
+from keras.models import Sequential 
+from keras.layers import LSTM, Dense, Dropout, Input 
 from ta.momentum import RSIIndicator
 import warnings
 import os
