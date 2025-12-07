@@ -22,9 +22,18 @@ BUY_THRESHOLD = 0.005      # Fiyat artış beklentisi %0.5'ten fazlaysa AL
 # --- YARDIMCI FONKSİYONLAR ---
 
 def add_technical_indicators(df):
-    """Veriye RSI ve Hacim kontrollerini ekler (Trainer'daki ile aynı)"""
-    rsi_indicator = RSIIndicator(close=df["Close"], window=14)
+    """Veriye RSI ve Hacim kontrollerini ekler"""
+    
+    # DÜZELTME 1: 'Close' sütununun tek boyutlu olduğundan emin ol
+    close_prices = df["Close"]
+    if isinstance(close_prices, pd.DataFrame):
+        close_prices = close_prices.iloc[:, 0]  # DataFrame ise seriye çevir
+        
+    # RSI Hesapla (Artık hata vermez)
+    rsi_indicator = RSIIndicator(close=close_prices, window=14)
     df["RSI"] = rsi_indicator.rsi()
+    
+    # Hacim temizliği
     df["Volume"] = df["Volume"].replace(0, np.nan)
     df.dropna(inplace=True)
     return df
@@ -48,10 +57,17 @@ def run_backtest():
         return
     
     print(f"\n🚀 {TICKER} için Geçmiş Test (Backtest) Başlatılıyor...")
-    df = yf.download(TICKER, period="2y", interval="1d", progress=False) # Son 2 yıllık veri
+    
+    # Veriyi indir
+    df = yf.download(TICKER, period="2y", interval="1d", progress=False)
+    
     if df.empty:
         print("HATA: Veri indirilemedi.")
         return
+
+    # DÜZELTME 2: Multi-Index sütunları temizle (yfinance güncellemesi için şart)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
         
     df = add_technical_indicators(df)
     
@@ -59,13 +75,12 @@ def run_backtest():
     cash = INITIAL_CAPITAL
     shares = 0
     total_trades = 0
-    profitable_trades = 0
     
     # Veri setini tahmin için hazırlama (Close, Volume, RSI)
     dataset = df[['Close', 'Volume', 'RSI']].values
 
     print(f"💰 Başlangıç Sermayesi: {INITIAL_CAPITAL:.2f} USD")
-    print(f"⏳ {len(dataset) - LOOKBACK} günlük test verisi bulundu.")
+    print(f"⏳ {len(dataset) - LOOKBACK} günlük test verisi işleniyor...")
     print("-" * 30)
 
     for i in range(LOOKBACK, len(dataset) - 1):
@@ -80,40 +95,44 @@ def run_backtest():
         # 3. Tahmini Fiyatı Geri Çevir
         predicted_price = p_scaler.inverse_transform(prediction_scaled)[0][0]
         
-        # O günkü fiyat
+        # O günkü fiyat (Tek değer olduğundan emin oluyoruz)
         current_close = df.iloc[i]['Close']
-        
-        # Bir sonraki günkü gerçek fiyat (Test için bunu kullanacağız)
-        next_open = df.iloc[i + 1]['Open'] 
+        if isinstance(current_close, pd.Series): current_close = current_close.iloc[0]
+
+        # Bir sonraki günkü gerçek fiyat
+        next_open = df.iloc[i + 1]['Open']
+        if isinstance(next_open, pd.Series): next_open = next_open.iloc[0]
         
         # Tahmin Edilen Yüzdelik Değişim
         predicted_change = (predicted_price - current_close) / current_close
 
         # --- TİCARET KARARI ---
         
-        # KARAR 1: ALIM (BUY)
+        # ALIM (BUY)
         if predicted_change > BUY_THRESHOLD and cash > 0:
-            # Tüm parayla alım yap
             shares_to_buy = int(cash / next_open)
             if shares_to_buy > 0:
                 shares += shares_to_buy
                 cash -= shares_to_buy * next_open
-                # print(f"ALIM: {df.index[i].strftime('%Y-%m-%d')} | Fiyat: {next_open:.2f} | Pay: {shares_to_buy}")
+                total_trades += 1
         
-        # KARAR 2: SATIM (SELL) - Karar verme mekanizması: Eğer model düşüş bekliyorsa ve elimizde hisse varsa sat.
+        # SATIM (SELL)
         elif predicted_change < 0 and shares > 0:
-            # Tüm hisseleri sat
             cash += shares * next_open
             shares = 0
-            # print(f"SATIM: {df.index[i].strftime('%Y-%m-%d')} | Fiyat: {next_open:.2f}")
+            total_trades += 1
 
     # --- SONUÇLARIN HESAPLANMASI ---
-    
-    final_value = cash + (shares * df.iloc[-1]['Close'])
+    last_close = df.iloc[-1]['Close']
+    if isinstance(last_close, pd.Series): last_close = last_close.iloc[0]
+
+    first_close_after_lookback = df.iloc[LOOKBACK]['Close']
+    if isinstance(first_close_after_lookback, pd.Series): first_close_after_lookback = first_close_after_lookback.iloc[0]
+
+    final_value = cash + (shares * last_close)
     total_return = (final_value - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
 
-    # Karşılaştırma: Eğer hiç işlem yapmayıp başta alsaydık ne olurdu? (Buy & Hold)
-    buy_and_hold_return = (df.iloc[-1]['Close'] - df.iloc[LOOKBACK]['Close']) / df.iloc[LOOKBACK]['Close'] * 100
+    buy_and_hold_return = (last_close - first_close_after_lookback) / first_close_after_lookback * 100
     
     print("-" * 30)
     print("📈 BACKTEST SONUÇLARI 📉")
@@ -122,15 +141,15 @@ def run_backtest():
     print("-" * 30)
     print(f"💵 Başlangıç Değeri: {INITIAL_CAPITAL:,.2f} USD")
     print(f"💵 Son Portföy Değeri: {final_value:,.2f} USD")
+    print(f"🔄 Toplam İşlem Sayısı: {total_trades}")
     print(f"💰 LAPLACE TOPLAM GETİRİ: %{total_return:,.2f}")
     print("-" * 30)
-    print(f"📊 Karşılaştırma (Al-Tut): %{buy_and_hold_return:,.2f}")
+    print(f"📊 Piyasa (Al-Tut) Getirisi: %{buy_and_hold_return:,.2f}")
     
     if total_return > buy_and_hold_return:
-        print("🏆 SONUÇ: Laplace, Al-Tut stratejisinden DAHA İYİ performans gösterdi!")
+        print("🏆 SONUÇ: Laplace, Piyasayı YENDİ! 🚀")
     else:
-        print("⚠️ SONUÇ: Laplace, Al-Tut stratejisinin gerisinde kaldı. Model/Strateji Geliştirilmeli.")
-
+        print("⚠️ SONUÇ: Laplace, Piyasanın gerisinde kaldı. Strateji geliştirilmeli.")
 
 if __name__ == "__main__":
     run_backtest()
