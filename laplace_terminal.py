@@ -160,27 +160,34 @@ with col2:
 
 # ... (st.title ve st.selectbox kodları)
 
-if analyze_btn: 
+if analyze_btn:
     with st.spinner("Laplace Motorları Çalışıyor..."):
-        # 1. Veri Çekme (history_df burada tanımlanır!)
-        market_data, history_df = get_market_data(ticker) 
+        # ... (veri çekme ve tahmin kodları)
         
-        if market_data is None or history_df is None:
-            st.error("Veri kaynağına erişilemedi.")
-            st.stop()
-        
-        # 2. Hata veren satır buraya gelmelidir:
-        # history_df tanımlandıktan sonra kullanılıyor.
-        lstm_result = get_lstm_prediction(history_df, LSTM_MODEL, GLOBAL_SCALER, FEATURE_COLS)
-                
-        # !!! BURAYA EKLE !!!
-        st.markdown(f"**DEBUG LSTM Result (Check for errors):** `{lstm_result}`")
-        # !!! BURAYA EKLE !!!
-        
+        # DEBUG hattı zaten burada olmalı: st.markdown(f"**DEBUG LSTM Result (Check for errors):** `{lstm_result}`")
+
         # --- PREDICTION 2: GEMINI (LLM) ---
+        # Gemini API anahtarınızın ayarlandığını varsayıyoruz.
+        # news_data = get_live_news(ticker)
+        # gemini_result = laplace_engine(ticker, market_data, news_data) 
+        
+        # Gemini placeholder'ını burada tanımlıyoruz (Gemini API'si aktif değilse bu çalışır):
         gemini_result = {"score": 85, "signal": "BUY", "reason": "Ölçekleme başarılı oldu. Gemini entegrasyonu tamamlanmıştır."}
 
-        # --- EKRAN ÇIKTILARI ---
+
+        # --- EKRAN ÇIKTILARI (GÖRSEL TEMİZLİK FIX'İ BURADA) ---
         st.markdown("### 📈 Teknik & Yapay Zeka Görüşü")
 
         col_lstm, col_gemini = st.columns([1, 2])
+        
+        with col_lstm:
+            # Sadece basit metin çıktısı veriyoruz (HTML'i atlıyoruz)
+            st.subheader("LSTM Tahmini (Yapay Zeka)")
+            st.metric(label="Yükseliş Olasılığı", value=lstm_result.split(':')[-1].strip())
+            
+        with col_gemini:
+            # Gemini Analiz Kartı
+            st.subheader("Gemini Analizi")
+            st.json(gemini_result)
+            
+        # --- FIX BİTTİ ---
