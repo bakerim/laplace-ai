@@ -23,14 +23,14 @@ def main():
         
         st.markdown("### Sistem Durumu")
         
-        lstm_model, global_scaler = load_ai_assets()
+        lstm_model, f_scaler, p_scaler = load_ai_assets()
         
         if LIBRARIES_LOADED:
             st.success("🧠 Kütüphaneler: AKTİF")
-            if lstm_model:
-                st.info("✅ Model Dosyası Bulundu")
+            if lstm_model and f_scaler and p_scaler:
+                st.info("✅ Gelişmiş Model (RSI+Vol) Hazır")
             else:
-                st.warning("⚠️ Model Dosyası Yok")
+                st.warning("⚠️ Model Dosyaları Eksik/Eski")
         else:
              st.error("❌ TensorFlow/Joblib Eksik")
 
@@ -59,7 +59,7 @@ def main():
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Son Fiyat", f"{current_price:.2f}")
                 
-                prediction, error = get_lstm_prediction(df, lstm_model, global_scaler)
+                prediction, error = get_lstm_prediction(df, lstm_model, f_scaler, p_scaler)
                     
                 if error:
                     st.warning(f"Tahmin Notu: {error}")
@@ -75,3 +75,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
