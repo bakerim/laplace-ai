@@ -12,7 +12,7 @@ from collections import defaultdict
 # --- AYARLAR (Backtest Modülünden Alınmıştır) ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.simplefilter(action='ignore', category=FutureWarning)
-TICKER = "BTC-USD"
+TICKER = "ETH-USD"
 LOOKBACK = 60
 MODEL_PATH = "laplace_lstm_model.h5"
 FEATURE_SCALER_PATH = "laplace_feature_scaler.pkl"

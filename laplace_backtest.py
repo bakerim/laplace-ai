@@ -28,7 +28,7 @@ def prepare_data(df):
     return df
 
 def run_backtest():
-    print(f"\n🚀 BTC-USD DEBUG BACKTEST (Konuşkan Mod)...")
+    print(f"\n🚀 ETH-USD DEBUG BACKTEST (Konuşkan Mod)...")
     
     try:
         model = tf.keras.models.load_model(MODEL_PATH)
