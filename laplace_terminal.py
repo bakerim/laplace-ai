@@ -156,13 +156,23 @@ with col1:
     ticker = st.selectbox("Varlık Seçimi", WATCHLIST)
 with col2:
     analyze_btn = st.button("HESAPLA ⚡", use_container_width=True, type="primary") # <--- NameError'ı çözen satır
-if analyze_btn:
+# --- laplace_terminal.py (Ana Akış) ---
+
+# ... (st.title ve st.selectbox kodları)
+
+if analyze_btn: 
     with st.spinner("Laplace Motorları Çalışıyor..."):
-        # ... (veri çekme kodu)
+        # 1. Veri Çekme (history_df burada tanımlanır!)
+        market_data, history_df = get_market_data(ticker) 
         
-        # --- PREDICTION 1: LSTM (Derin Öğrenme) ---
+        if market_data is None or history_df is None:
+            st.error("Veri kaynağına erişilemedi.")
+            st.stop()
+        
+        # 2. Hata veren satır buraya gelmelidir:
+        # history_df tanımlandıktan sonra kullanılıyor.
         lstm_result = get_lstm_prediction(history_df, LSTM_MODEL, GLOBAL_SCALER, FEATURE_COLS)
-        
+                
         # !!! BURAYA EKLE !!!
         st.markdown(f"**DEBUG LSTM Result (Check for errors):** `{lstm_result}`")
         # !!! BURAYA EKLE !!!
