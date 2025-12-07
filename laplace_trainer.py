@@ -1,4 +1,3 @@
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import joblib
@@ -10,76 +9,77 @@ from ta.momentum import RSIIndicator
 import warnings
 import os
 
+# --- YENİ EKLENTİ: Drive Modülünü Çağır ---
+from laplace_drive_loader import load_data_from_drive
+
 # Ayarlar
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-TICKER = "AAPL"
+# TICKER artık dosya ismine bağlı olacak, ama kaydederken yine genel isim kullanıyoruz
 LOOKBACK = 60
-EPOCHS = 10  # Veri arttığı için tur sayısını biraz artırdık
+EPOCHS = 15  # Büyük veri için epoch sayısını biraz daha artırdım!
 BATCH_SIZE = 32
 MODEL_NAME = "laplace_lstm_model.h5"
-FEATURE_SCALER_NAME = "laplace_feature_scaler.pkl" # Tüm veriler için
-PRICE_SCALER_NAME = "laplace_price_scaler.pkl"     # Sadece fiyat için
+FEATURE_SCALER_NAME = "laplace_feature_scaler.pkl"
+PRICE_SCALER_NAME = "laplace_price_scaler.pkl"
 
 def add_technical_indicators(df):
     """Veriye RSI ve Hacim kontrollerini ekler"""
-    # RSI Hesapla
+    # Veri setinde 'Close' ve 'Volume' olduğundan emin olalım
+    if 'Close' not in df.columns or 'Volume' not in df.columns:
+        print("⚠️ HATA: CSV dosyasında 'Close' veya 'Volume' sütunu bulunamadı.")
+        return None
+
     rsi_indicator = RSIIndicator(close=df["Close"], window=14)
     df["RSI"] = rsi_indicator.rsi()
-    
-    # Hacim zaten var ama 0 olan yerleri temizleyelim
     df["Volume"] = df["Volume"].replace(0, np.nan)
-    
-    # NaN (Boş) verileri temizle (RSI ilk 14 gün boş gelir)
     df.dropna(inplace=True)
     return df
 
 def create_and_train_model():
-    print(f"📡 {TICKER} için GELİŞMİŞ veriler indiriliyor...")
-    df = yf.download(TICKER, period="5y", interval="1d", progress=False)
+    print(f"📡 Veri Kaynağı: GOOGLE DRIVE")
     
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+    # 1. Veriyi Drive'dan Çek
+    df = load_data_from_drive()
     
-    # İndikatörleri Ekle
-    print("🧪 Teknik indikatörler (RSI, Hacim) hesaplanıyor...")
+    if df is None:
+        print("❌ Eğitim iptal edildi. Veri yok.")
+        return
+
+    # 2. İndikatörleri Ekle
+    print("🧪 Teknik indikatörler hesaplanıyor...")
     df = add_technical_indicators(df)
+    if df is None: return
     
-    # Kullanacağımız Özellikler: Close, Volume, RSI
+    # Kullanacağımız Özellikler
     dataset = df[['Close', 'Volume', 'RSI']].values
     
-    # Ölçeklendirme (Scaling)
     print("⚖️ Veriler ölçeklendiriliyor...")
-    
-    # 1. Genel Scaler (Modelin Girdisi İçin: Close, Vol, RSI)
     feature_scaler = MinMaxScaler(feature_range=(0, 1))
     scaled_data = feature_scaler.fit_transform(dataset)
     
-    # 2. Fiyat Scaler (Sadece Çıktıyı Geri Çevirmek İçin: Close)
     price_scaler = MinMaxScaler(feature_range=(0, 1))
     price_scaler.fit(df[['Close']].values)
     
     # Eğitim Verisi Hazırlama
     x_train, y_train = [], []
     for i in range(LOOKBACK, len(scaled_data)):
-        x_train.append(scaled_data[i-LOOKBACK:i]) # Tüm özellikler (3 adet)
-        y_train.append(scaled_data[i, 0])          # Hedef sadece Close (0. indeks)
+        x_train.append(scaled_data[i-LOOKBACK:i])
+        y_train.append(scaled_data[i, 0])
         
     x_train, y_train = np.array(x_train), np.array(y_train)
     
-    print(f"🧠 Model inşa ediliyor (Girdi Şekli: {x_train.shape})...")
+    print(f"🧠 Model inşa ediliyor (Veri Boyutu: {x_train.shape[0]} satır)...")
     
     model = Sequential()
-    # Input shape artık (60, 3) oldu -> (60 gün, 3 özellik)
     model.add(Input(shape=(x_train.shape[1], x_train.shape[2])))
-    
-    model.add(LSTM(units=50, return_sequences=True))
+    model.add(LSTM(units=100, return_sequences=True)) # Birim sayısını 50'den 100'e çıkardık (Daha büyük beyin)
     model.add(Dropout(0.2))
-    model.add(LSTM(units=50, return_sequences=False))
+    model.add(LSTM(units=100, return_sequences=False))
     model.add(Dropout(0.2))
-    model.add(Dense(units=25))
-    model.add(Dense(units=1)) # Tek çıktı: Fiyat
+    model.add(Dense(units=50))
+    model.add(Dense(units=1))
     
     model.compile(optimizer='adam', loss='mean_squared_error')
     
@@ -91,7 +91,7 @@ def create_and_train_model():
     joblib.dump(feature_scaler, FEATURE_SCALER_NAME)
     joblib.dump(price_scaler, PRICE_SCALER_NAME)
     
-    print(f"✅ BAŞARILI! Model ve Yeni Scalerlar hazır.")
+    print(f"✅ BAŞARILI! Model Drive verisiyle eğitildi.")
 
 if __name__ == "__main__":
     create_and_train_model()
