@@ -1,4 +1,3 @@
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import joblib
@@ -7,130 +6,125 @@ from ta.momentum import RSIIndicator
 import os
 import warnings
 from sklearn.preprocessing import MinMaxScaler
+from laplace_drive_loader import load_data_from_drive
 
-# --- AYARLAR ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.simplefilter(action='ignore', category=FutureWarning)
-TICKER = "AAPL"
+
 LOOKBACK = 60
 MODEL_PATH = "laplace_lstm_model.h5"
 FEATURE_SCALER_PATH = "laplace_feature_scaler.pkl"
-PRICE_SCALER_PATH = "laplace_price_scaler.pkl"
-INITIAL_CAPITAL = 10000.0  
-BUY_THRESHOLD = 0.005      
-COMMISSION_FEE = 1.50      # <---- YENİ EKLENEN SABİT KOMİSYON ÜCRETİ ($)
+INITIAL_CAPITAL = 10000.0
+COMMISSION_FEE = 1.50
+# KRİTİK DEĞİŞİKLİK: Eşiği sıfıra indirdik. Pozitif düşündüğü an alacak.
+BUY_THRESHOLD = 0.0 
 
-# --- YARDIMCI VE YÜKLEME FONKSİYONLARI (DEĞİŞMEDİ) ---
-
-def add_technical_indicators(df):
-    close_prices = df["Close"]
-    if isinstance(close_prices, pd.DataFrame):
-        close_prices = close_prices.iloc[:, 0]
-    rsi_indicator = RSIIndicator(close=close_prices, window=14)
+def prepare_data(df):
+    df['Log_Ret'] = np.log(df['Close'] / df['Close'].shift(1))
+    rsi_indicator = RSIIndicator(close=df["Close"], window=14)
     df["RSI"] = rsi_indicator.rsi()
     df["Volume"] = df["Volume"].replace(0, np.nan)
     df.dropna(inplace=True)
     return df
 
-def load_assets():
+def run_backtest():
+    print(f"\n🚀 BTC-USD DEBUG BACKTEST (Konuşkan Mod)...")
+    
     try:
         model = tf.keras.models.load_model(MODEL_PATH)
         f_scaler = joblib.load(FEATURE_SCALER_PATH)
-        p_scaler = joblib.load(PRICE_SCALER_PATH)
-        return model, f_scaler, p_scaler
-    except Exception as e:
-        print(f"HATA: Gerekli dosyalar yüklenemedi. Önce trainer.py'yi çalıştırın. Hata: {e}")
-        return None, None, None
-
-# --- BACKTEST FONKSİYONU ---
-
-def run_backtest():
-    model, f_scaler, p_scaler = load_assets()
-    if not all([model, f_scaler, p_scaler]):
-        return
-    
-    print(f"\n🚀 {TICKER} için Geçmiş Test (Komisyon Dahil) Başlatılıyor...")
-    df = yf.download(TICKER, period="2y", interval="1d", progress=False)
-    
-    if df.empty:
-        print("HATA: Veri indirilemedi.")
+    except:
+        print("❌ Model dosyaları bulunamadı.")
         return
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-        
-    df = add_technical_indicators(df)
+    df = load_data_from_drive()
+    if df is None: return
+    
+    df = prepare_data(df)
+    dataset = df[['Log_Ret', 'Volume', 'RSI']].values
     
     cash = INITIAL_CAPITAL
     shares = 0
     total_trades = 0
-    dataset = df[['Close', 'Volume', 'RSI']].values
-
-    print(f"💰 Başlangıç Sermayesi: {INITIAL_CAPITAL:.2f} USD")
-    print(f"💸 Her İşlem Başı Komisyon: {COMMISSION_FEE:.2f} USD")
-    print(f"⏳ {len(dataset) - LOOKBACK} günlük test verisi işleniyor...")
-    print("-" * 30)
-
+    
+    print(f"⏳ {len(dataset) - LOOKBACK} gün taranıyor. Örnek tahminler aşağıda:")
+    print(f"{'GÜN':<5} | {'TAHMİN (%)':<15} | {'KARAR'}")
+    print("-" * 40)
+    
     for i in range(LOOKBACK, len(dataset) - 1):
         current_data = dataset[i - LOOKBACK:i]
         scaled_data = f_scaler.transform(current_data)
         X_input = np.reshape(scaled_data, (1, LOOKBACK, 3))
-        prediction_scaled = model.predict(X_input, verbose=0)
-        predicted_price = p_scaler.inverse_transform(prediction_scaled)[0][0]
         
-        current_close = df.iloc[i]['Close']
-        if isinstance(current_close, pd.Series): current_close = current_close.iloc[0]
-        next_open = df.iloc[i + 1]['Open']
-        if isinstance(next_open, pd.Series): next_open = next_open.iloc[0]
+        pred_scaled = model.predict(X_input, verbose=0)
         
-        predicted_change = (predicted_price - current_close) / current_close
+        # Geri dönüşüm (Inverse Transform)
+        dummy = np.zeros(shape=(1, 3))
+        dummy[0, 0] = pred_scaled[0][0]
+        inverse_scaled = f_scaler.inverse_transform(dummy)
+        predicted_log_ret = inverse_scaled[0][0]
+        
+        # Yüzdeye çevir (örn: 0.02 -> %2)
+        predicted_change = (np.exp(predicted_log_ret) - 1)
+        
+        # --- DEBUG ÇIKTISI (Her 50 günde bir ne düşündüğünü yaz) ---
+        if i % 50 == 0:
+            decision = "NÖTR"
+            if predicted_change > BUY_THRESHOLD: decision = "ALIM 🟢"
+            elif predicted_change < 0: decision = "SATIM 🔴"
+            print(f"{i:<5} | %{predicted_change*100:<14.4f} | {decision}")
 
-        # --- TİCARET KARARI ---
+        # --- TİCARET KARARI (YENİ KESİRLİ PAY LOGİĞİ) ---
+        next_open = df.iloc[i + 1]['Open']
         
         # ALIM (BUY)
         if predicted_change > BUY_THRESHOLD and cash > 0:
-            shares_to_buy = int((cash - COMMISSION_FEE) / next_open) # Komisyon düşüldü
-            if shares_to_buy > 0:
+            
+            # Komisyonu nakitten düş ve kalan tüm parayla alım yap (Kesirli alım)
+            buy_amount = cash - COMMISSION_FEE 
+            
+            if buy_amount > 0 and next_open > 0:
+                shares_to_buy = buy_amount / next_open
+                
+                # Kesirli Pay Alımı
                 shares += shares_to_buy
-                cash -= (shares_to_buy * next_open) + COMMISSION_FEE # Komisyon düşüldü
+                cash -= buy_amount + COMMISSION_FEE # Toplam harcanan miktar = pay + komisyon
                 total_trades += 1
         
         # SATIM (SELL)
         elif predicted_change < 0 and shares > 0:
-            cash += (shares * next_open) - COMMISSION_FEE # Komisyon düşüldü
+            # Tüm hisseleri sat
+            cash += (shares * next_open) - COMMISSION_FEE
             shares = 0
             total_trades += 1
 
-    # --- SONUÇLARIN HESAPLANMASI (DEĞİŞMEDİ) ---
+        # --- TİCARET KARARI ---
+        next_open = df.iloc[i + 1]['Open']
+        
+        if predicted_change > BUY_THRESHOLD and cash > 0:
+            shares_to_buy = int((cash - COMMISSION_FEE) / next_open)
+            if shares_to_buy > 0:
+                shares += shares_to_buy
+                cash -= (shares_to_buy * next_open) + COMMISSION_FEE
+                total_trades += 1
+        
+        elif predicted_change < 0 and shares > 0:
+            cash += (shares * next_open) - COMMISSION_FEE
+            shares = 0
+            total_trades += 1
+
     last_close = df.iloc[-1]['Close']
-    if isinstance(last_close, pd.Series): last_close = last_close.iloc[0]
-
-    first_close_after_lookback = df.iloc[LOOKBACK]['Close']
-    if isinstance(first_close_after_lookback, pd.Series): first_close_after_lookback = first_close_after_lookback.iloc[0]
-
     final_value = cash + (shares * last_close)
     total_return = (final_value - INITIAL_CAPITAL) / INITIAL_CAPITAL * 100
-
-    buy_and_hold_return = (last_close - first_close_after_lookback) / first_close_after_lookback * 100
+    
+    start_price = df.iloc[LOOKBACK]['Close']
+    market_return = (last_close - start_price) / start_price * 100
     
     print("-" * 30)
-    print("📈 BACKTEST SONUÇLARI (KOMİSYON DAHİL) 📉")
-    print(f"Başlangıç Tarihi: {df.index[LOOKBACK].strftime('%Y-%m-%d')}")
-    print(f"Bitiş Tarihi: {df.index[-1].strftime('%Y-%m-%d')}")
-    print("-" * 30)
-    print(f"💵 Başlangıç Değeri: {INITIAL_CAPITAL:,.2f} USD")
-    print(f"💵 Son Portföy Değeri: {final_value:,.2f} USD")
-    print(f"🔄 Toplam İşlem Sayısı: {total_trades}")
-    print(f"💰 LAPLACE TOPLAM GETİRİ: %{total_return:,.2f}")
-    print("-" * 30)
-    print(f"📊 Piyasa (Al-Tut) Getirisi: %{buy_and_hold_return:,.2f}")
-    
-    if total_return > buy_and_hold_return:
-        print("🏆 SONUÇ: Laplace, Komisyonlara Rağmen Piyasayı YENDİ! 🚀")
-    else:
-        print("❌ SONUÇ: Komisyonlar kârımızı eritti. Strateji Geliştirilmeli!")
-        print(f"    (Komisyonsuz Kâr: %{64.89 - total_return:.2f} daha fazlaydı.)")
-
+    print(f"💵 Son Portföy: {final_value:,.2f} USD")
+    print(f"🔄 İşlem Sayısı: {total_trades}")
+    print(f"💰 LAPLACE GETİRİSİ: %{total_return:,.2f}")
+    print(f"📊 PİYASA GETİRİSİ: %{market_return:,.2f}")
 
 if __name__ == "__main__":
     run_backtest()
