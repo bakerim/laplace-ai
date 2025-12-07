@@ -6,64 +6,80 @@ import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
-
-# Gereksiz uyarıları filtreleyelim (Temiz ekran için)
+from ta.momentum import RSIIndicator
 import warnings
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # TensorFlow bilgi mesajlarını gizle
+
+# Ayarlar
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# -----------------------------------------------------------------------------
-# AYARLAR
-# -----------------------------------------------------------------------------
 TICKER = "AAPL"
 LOOKBACK = 60
-EPOCHS = 5
+EPOCHS = 10  # Veri arttığı için tur sayısını biraz artırdık
 BATCH_SIZE = 32
 MODEL_NAME = "laplace_lstm_model.h5"
-SCALER_NAME = "laplace_scaler.pkl"
+FEATURE_SCALER_NAME = "laplace_feature_scaler.pkl" # Tüm veriler için
+PRICE_SCALER_NAME = "laplace_price_scaler.pkl"     # Sadece fiyat için
+
+def add_technical_indicators(df):
+    """Veriye RSI ve Hacim kontrollerini ekler"""
+    # RSI Hesapla
+    rsi_indicator = RSIIndicator(close=df["Close"], window=14)
+    df["RSI"] = rsi_indicator.rsi()
+    
+    # Hacim zaten var ama 0 olan yerleri temizleyelim
+    df["Volume"] = df["Volume"].replace(0, np.nan)
+    
+    # NaN (Boş) verileri temizle (RSI ilk 14 gün boş gelir)
+    df.dropna(inplace=True)
+    return df
 
 def create_and_train_model():
-    print(f"📡 {TICKER} için veriler indiriliyor...")
-    
-    # Veri İndirme
+    print(f"📡 {TICKER} için GELİŞMİŞ veriler indiriliyor...")
     df = yf.download(TICKER, period="5y", interval="1d", progress=False)
     
-    # Multi-index temizliği
     if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
     
-    data = df['Close'].values.reshape(-1, 1)
+    # İndikatörleri Ekle
+    print("🧪 Teknik indikatörler (RSI, Hacim) hesaplanıyor...")
+    df = add_technical_indicators(df)
     
+    # Kullanacağımız Özellikler: Close, Volume, RSI
+    dataset = df[['Close', 'Volume', 'RSI']].values
+    
+    # Ölçeklendirme (Scaling)
     print("⚖️ Veriler ölçeklendiriliyor...")
-    scaler = MinMaxScaler(feature_range=(0, 1))
-    scaled_data = scaler.fit_transform(data)
+    
+    # 1. Genel Scaler (Modelin Girdisi İçin: Close, Vol, RSI)
+    feature_scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_data = feature_scaler.fit_transform(dataset)
+    
+    # 2. Fiyat Scaler (Sadece Çıktıyı Geri Çevirmek İçin: Close)
+    price_scaler = MinMaxScaler(feature_range=(0, 1))
+    price_scaler.fit(df[['Close']].values)
     
     # Eğitim Verisi Hazırlama
     x_train, y_train = [], []
     for i in range(LOOKBACK, len(scaled_data)):
-        x_train.append(scaled_data[i-LOOKBACK:i, 0])
-        y_train.append(scaled_data[i, 0])
+        x_train.append(scaled_data[i-LOOKBACK:i]) # Tüm özellikler (3 adet)
+        y_train.append(scaled_data[i, 0])          # Hedef sadece Close (0. indeks)
         
     x_train, y_train = np.array(x_train), np.array(y_train)
-    x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
     
-    print("🧠 Model inşa ediliyor (Modern Mimari)...")
+    print(f"🧠 Model inşa ediliyor (Girdi Şekli: {x_train.shape})...")
     
-    # --- MODERNİZASYON BURADA YAPILDI ---
     model = Sequential()
+    # Input shape artık (60, 3) oldu -> (60 gün, 3 özellik)
+    model.add(Input(shape=(x_train.shape[1], x_train.shape[2])))
     
-    # 1. Yeni 'Input' katmanı (Uyarıyı susturur)
-    model.add(Input(shape=(x_train.shape[1], 1)))
-    
-    # 2. LSTM Katmanları
     model.add(LSTM(units=50, return_sequences=True))
     model.add(Dropout(0.2))
     model.add(LSTM(units=50, return_sequences=False))
     model.add(Dropout(0.2))
     model.add(Dense(units=25))
-    model.add(Dense(units=1))
-    # -------------------------------------
+    model.add(Dense(units=1)) # Tek çıktı: Fiyat
     
     model.compile(optimizer='adam', loss='mean_squared_error')
     
@@ -71,10 +87,11 @@ def create_and_train_model():
     model.fit(x_train, y_train, batch_size=BATCH_SIZE, epochs=EPOCHS, verbose=1)
     
     print("💾 Dosyalar kaydediliyor...")
-    model.save(MODEL_NAME) # .h5 formatında ısrarcıyız çünkü Engine bunu okuyor
-    joblib.dump(scaler, SCALER_NAME)
+    model.save(MODEL_NAME)
+    joblib.dump(feature_scaler, FEATURE_SCALER_NAME)
+    joblib.dump(price_scaler, PRICE_SCALER_NAME)
     
-    print(f"✅ BAŞARILI! '{MODEL_NAME}' ve '{SCALER_NAME}' güncellendi.")
+    print(f"✅ BAŞARILI! Model ve Yeni Scalerlar hazır.")
 
 if __name__ == "__main__":
     create_and_train_model()
