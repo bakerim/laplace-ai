@@ -160,30 +160,25 @@ with col2:
 
 # ... (st.title ve st.selectbox kodları)
 
-if analyze_btn:
-    with st.spinner("Laplace Motorları Çalışıyor..."):
-        # ... (veri çekme ve tahmin kodları)
+if analyze_btn: # <-- 1. BLOK BAŞLANGICI
+    with st.spinner("Laplace Motorları Çalışıyor..."): # <-- 2. BLOK BAŞLANGICI
         
-        # DEBUG hattı zaten burada olmalı: st.markdown(f"**DEBUG LSTM Result (Check for errors):** `{lstm_result}`")
+        # ... (Veri çekme ve tahmin kodları)
+        lstm_result = get_lstm_prediction(history_df, LSTM_MODEL, GLOBAL_SCALER, FEATURE_COLS) 
+        # lstm_result burada tanımlanır.
 
-        # --- PREDICTION 2: GEMINI (LLM) ---
-        # Gemini API anahtarınızın ayarlandığını varsayıyoruz.
-        # news_data = get_live_news(ticker)
-        # gemini_result = laplace_engine(ticker, market_data, news_data) 
-        
-        # Gemini placeholder'ını burada tanımlıyoruz (Gemini API'si aktif değilse bu çalışır):
-        gemini_result = {"score": 85, "signal": "BUY", "reason": "Ölçekleme başarılı oldu. Gemini entegrasyonu tamamlanmıştır."}
+        # ... (Gemini kodu)
 
-
-        # --- EKRAN ÇIKTILARI (GÖRSEL TEMİZLİK FIX'İ BURADA) ---
+        # --- EKRAN ÇIKTILARI (BU KISIM MUTLAKA İÇERİDE OLMALI) ---
         st.markdown("### 📈 Teknik & Yapay Zeka Görüşü")
-
+        
         col_lstm, col_gemini = st.columns([1, 2])
         
-        with col_lstm:
-            # Sadece basit metin çıktısı veriyoruz (HTML'i atlıyoruz)
-            st.subheader("LSTM Tahmini (Yapay Zeka)")
+        with col_lstm: 
+            # st.metric gibi st. komutları burada başlar.
             st.metric(label="Yükseliş Olasılığı", value=lstm_result.split(':')[-1].strip())
+            # ...
+        # ...
             
         with col_gemini:
             # Gemini Analiz Kartı
