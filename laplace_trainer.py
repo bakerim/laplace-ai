@@ -8,27 +8,22 @@ from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 from ta.momentum import RSIIndicator
 import warnings
 import os
+from laplace_drive_loader import load_data_from_drive # <-- Drive modülünü çağırıyoruz
 
-# --- YENİ EKLENTİ: Drive Modülünü Çağır ---
-from laplace_drive_loader import load_data_from_drive
-
-# Ayarlar
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-# TICKER artık dosya ismine bağlı olacak, ama kaydederken yine genel isim kullanıyoruz
 LOOKBACK = 60
-EPOCHS = 15  # Büyük veri için epoch sayısını biraz daha artırdım!
+EPOCHS = 15
 BATCH_SIZE = 32
 MODEL_NAME = "laplace_lstm_model.h5"
 FEATURE_SCALER_NAME = "laplace_feature_scaler.pkl"
 PRICE_SCALER_NAME = "laplace_price_scaler.pkl"
 
 def add_technical_indicators(df):
-    """Veriye RSI ve Hacim kontrollerini ekler"""
-    # Veri setinde 'Close' ve 'Volume' olduğundan emin olalım
+    # CSV'de bu sütunlar var mı kontrol et
     if 'Close' not in df.columns or 'Volume' not in df.columns:
-        print("⚠️ HATA: CSV dosyasında 'Close' veya 'Volume' sütunu bulunamadı.")
+        print(f"⚠️ HATA: CSV dosyasında 'Close' veya 'Volume' sütunu yok. Mevcut sütunlar: {df.columns}")
         return None
 
     rsi_indicator = RSIIndicator(close=df["Close"], window=14)
@@ -52,7 +47,6 @@ def create_and_train_model():
     df = add_technical_indicators(df)
     if df is None: return
     
-    # Kullanacağımız Özellikler
     dataset = df[['Close', 'Volume', 'RSI']].values
     
     print("⚖️ Veriler ölçeklendiriliyor...")
@@ -62,7 +56,6 @@ def create_and_train_model():
     price_scaler = MinMaxScaler(feature_range=(0, 1))
     price_scaler.fit(df[['Close']].values)
     
-    # Eğitim Verisi Hazırlama
     x_train, y_train = [], []
     for i in range(LOOKBACK, len(scaled_data)):
         x_train.append(scaled_data[i-LOOKBACK:i])
@@ -74,7 +67,7 @@ def create_and_train_model():
     
     model = Sequential()
     model.add(Input(shape=(x_train.shape[1], x_train.shape[2])))
-    model.add(LSTM(units=100, return_sequences=True)) # Birim sayısını 50'den 100'e çıkardık (Daha büyük beyin)
+    model.add(LSTM(units=100, return_sequences=True))
     model.add(Dropout(0.2))
     model.add(LSTM(units=100, return_sequences=False))
     model.add(Dropout(0.2))
