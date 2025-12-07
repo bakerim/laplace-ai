@@ -158,18 +158,19 @@ with col2:
     analyze_btn = st.button("HESAPLA ⚡", use_container_width=True, type="primary") # <--- NameError'ı çözen satır
 if analyze_btn:
     with st.spinner("Laplace Motorları Çalışıyor..."):
-        market_data, history_df = get_market_data(ticker)
-        
-        if market_data is None or history_df is None:
-            st.error("Veri kaynağına erişilemedi.")
-            st.stop()
+        # ... (veri çekme kodu)
         
         # --- PREDICTION 1: LSTM (Derin Öğrenme) ---
         lstm_result = get_lstm_prediction(history_df, LSTM_MODEL, GLOBAL_SCALER, FEATURE_COLS)
         
+        # !!! BURAYA EKLE !!!
+        st.markdown(f"**DEBUG LSTM Result (Check for errors):** `{lstm_result}`")
+        # !!! BURAYA EKLE !!!
+        
         # --- PREDICTION 2: GEMINI (LLM) ---
         gemini_result = {"score": 85, "signal": "BUY", "reason": "Ölçekleme başarılı oldu. Gemini entegrasyonu tamamlanmıştır."}
 
-        # --- EKRAN ÇIKTILARI (AYNI) ---
+        # --- EKRAN ÇIKTILARI ---
         st.markdown("### 📈 Teknik & Yapay Zeka Görüşü")
-        # ...
+
+        col_lstm, col_gemini = st.columns([1, 2])
